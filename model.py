@@ -2,6 +2,8 @@
 # be available to AutoLab and are not needed (or allowed)
 import numpy as np
 import os
+import sys
+from .data_loader import load_data
 
 
 class Activation(object):
@@ -56,20 +58,20 @@ class Sigmoid(Activation):
 
     def __init__(self):
         super(Sigmoid, self).__init__()
-        self.input = None
+        self.sigmoid = None
 
     def forward(self, x):
 
         # Might we need to store something before returning?
-        self.input = x
-        return 1/(1 + np.exp(-x))
+        self.sigmoid = 1/(1 + np.exp(-x))
+        return self.sigmoid
 
 
     def derivative(self):
 
         # Maybe something we need later in here...
 
-        raise NotImplemented
+        return self.sigmoid * (1 - self.sigmoid)
 
 
 class Tanh(Activation):
@@ -223,8 +225,8 @@ class BatchNorm(object):
 
 
 # These are both easy one-liners, don't over-think them
-def random_normal_weight_init(d0, d1, bsz):
-    return np.random.random((d0, d1, bsz))
+def random_normal_weight_init(bsz, d0, d1):
+    return np.random.random((bsz, d0, d1))
 
 
 def zeros_bias_init(d, bsz):
@@ -305,7 +307,10 @@ class MLP(object):
         raise NotImplemented
 
     def step(self):
-        raise NotImplemented
+
+        for layer_idx in range(0, self.nlayers):
+            self.W[layer_idx] -= self.lr * self.dW[layer_idx]
+            self.b[layer_idx] -= self.lr * self.db[layer_idx]
 
     def backward(self, labels):
         bsz = labels.shape[0]
@@ -342,6 +347,8 @@ class MLP(object):
             dOut_prev = dLoss_Out
             W_prev = self.W[layer_idx]
 
+        # update weights
+        self.step()
 
     def __call__(self, x):
         return self.forward(x)
@@ -368,16 +375,6 @@ def get_training_stats(mlp, dset, nepochs, batch_size):
     validation_losses = []
     validation_errors = []
 
-    # Setup ...
-    input_size = len(trainx[0])
-    output_size = 19
-    hiddens = [100]
-    activations = [Sigmoid()]
-    weight_init_fn = random_normal_weight_init
-    bias_init_fn = zeros_bias_init
-    criterion = SoftmaxCrossEntropy()
-    lr = 0.01
-    mlp = MLP(input_size, output_size, batch_size, hiddens, activations, weight_init_fn, bias_init_fn, criterion, lr, momentum=0.0, num_bn_layers=0)
 
     for e in range(nepochs):
 
@@ -393,6 +390,8 @@ def get_training_stats(mlp, dset, nepochs, batch_size):
             train_loss += mlp.criterion.forward(logits, labels)
             mlp.backward(labels)
             prev_b = b
+            print("Training loss: {}".format(float(train_loss/batch_size)))
+            training_losses.append(train_loss)
 
         prev_b = 0
         for b in range(0, len(valx), batch_size):
@@ -414,3 +413,39 @@ def get_training_stats(mlp, dset, nepochs, batch_size):
     # return (training_losses, training_errors, validation_losses, validation_errors)
 
     raise NotImplemented
+
+if __name__ == '__main__':
+    directory_path = "C:\\Users\\SumeetSingh\\Documents\\Lectures\\10-707\\HW-Code\\split_data_problem_5_hw1"
+    if len(sys.argv) > 1:
+        directory_path = sys.argv[1]
+    trainX = []
+    trainY = []
+    validX = []
+    validY = []
+    testX = []
+    testY = []
+    for file in os.listdir(directory_path):
+        data, labels = load_data(os.path.abspath(os.path.join(directory_path, file)))
+        if "train" in file:
+            trainX = data
+            trainY = labels
+        elif "val" in file:
+            validX = data
+            validY = labels
+        else:
+            testX = data
+            testY = labels
+            # Setup ...
+    dset = [(trainX, trainY), (validX, validY), (testX, testY)]
+    input_size = len(trainX[0])
+    output_size = 19
+    hiddens = [100]
+    activations = [Sigmoid()]
+    weight_init_fn = random_normal_weight_init
+    bias_init_fn = zeros_bias_init
+    criterion = SoftmaxCrossEntropy()
+    lr = 0.01
+    batch_size = 32
+    mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion,
+              lr, momentum=0.0, num_bn_layers=0)
+    get_training_stats(mlp, dset, 150, batch_size)

@@ -19,24 +19,22 @@ def load_instance(line, test=False):
         digit2.extend(pixels[i+28:i+56])
         i+=56
 
-    return np.array(digit1,dtype=float), np.array(digit2,dtype=float), label
+    return np.array(digit1, dtype=float), np.array(digit2, dtype=float), label
+
 
 def load_data(filepath):
-    with open(filepath,'r') as fp:
+    digits = []
+    labels = []
+    with open(filepath, 'r') as fp:
         filename, _ = os.path.splitext(os.path.basename(filepath))
-        test = False
-        if "test" in filename:
-            test = True
         for line in fp.readlines():
-            dig1, dig2, label = load_instance(line, test)
-            gen_image(dig1).show()
-            gen_image(dig2).show()
-            exit(0)
+            one_hot_label = np.zeros(19)
+            dig1, dig2, label = load_instance(line)
+            one_hot_label[int(label)] = 1
+            digits.append(dig1+dig2)
+            labels.append(one_hot_label)
+            # gen_image(dig1).show()
+            # gen_image(dig2).show()
+    return digits, labels
             
 
-if __name__ == '__main__':
-    directory_path = "C:\\Users\\SumeetSingh\\Documents\\Lectures\\10-707\\HW-Code\\split_data_problem_5_hw1"
-    if len(sys.argv) > 1:
-        directory_path = sys.argv[1]
-    for file in os.listdir(directory_path):
-        load_data(os.path.abspath(os.path.join(directory_path,file)))

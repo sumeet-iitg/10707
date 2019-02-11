@@ -147,19 +147,24 @@ class SoftmaxCrossEntropy(Criterion):
 
     def forward(self, x, y):
 
-        self.logits = x
-        self.labels = y
-        exponents = np.exp(self.logits)
+        bsz = x.shape[0]
+        self.logits = x # bsz x label_size
+        self.labels = y # bsz x label_size
+        exponents = np.exp(self.logits).reshape(bsz, -1, 1) # bsz x label_size x 1
         # following for numerical stability
         # exponents = np.exp(self.logits - np.max(self.logits))
-        self.sm = exponents/(1+np.sum(exponents))
-        # computing the cross entropy for entire batch
+
+        # assuming batch is the 0th dimension
+        self.sm = exponents/(1+np.sum(exponents, axis=1))
+        self.sm = self.sm.squeeze(axis=2) # bsz x label_size x 1 --> bsz x label_size
+        # cross entropy for entire batch matrix
         x_entropy_loss = -np.sum(np.dot(np.log(self.sm), y))
         return x_entropy_loss
 
     def derivative(self):
 
         # self.sm might be useful here...
+        # batch is the first dim here, i.e. these are batch of row vectors
         return self.sm - self.labels
 
 
@@ -254,20 +259,21 @@ class MLP(object):
         self.dW = []
         self.b = []
         self.db = []
-        # HINT: self.foo = [ bar(???) for ?? in ? ]
 
         prev_layer_size = self.input_size
         for layer_idx, layer_size in enumerate(hiddens):
-            self.W.append(weight_init_fn(prev_layer_size, hiddens[layer_idx], batch_size))
-            self.dW.append(np.zeros(prev_layer_size, hiddens[layer_idx]))
-            self.b.append(bias_init_fn(prev_layer_size))
-            self.db.append(np.zeros(prev_layer_size))
+            # because we are left multiplying W with X_in and H thereafter.
+            self.W.append(weight_init_fn(batch_size, hiddens[layer_idx], prev_layer_size))
+            self.dW.append(np.zeros(batch_size, hiddens[layer_idx], prev_layer_size))
+            self.b.append(bias_init_fn(batch_size, prev_layer_size))
+            self.db.append(np.zeros(batch_size, prev_layer_size))
             prev_layer_size = layer_size
 
-        self.W.append(weight_init_fn(hiddens[-1], output_size))
-        self.dW.append(np.zeros(hiddens[-1], output_size))
-        self.b.append(bias_init_fn(hiddens[-1]))
-        self.db.append(np.zeros(hiddens[-1]))
+        # weights for output layer
+        self.W.append(weight_init_fn(batch_size, output_size, hiddens[-1]))
+        self.dW.append(np.zeros(batch_size, output_size, hiddens[-1]))
+        self.b.append(bias_init_fn(batch_size, hiddens[-1]))
+        self.db.append(np.zeros(batch_size, hiddens[-1]))
 
         self.stored_activations = []
 
@@ -279,14 +285,19 @@ class MLP(object):
 
     def forward(self, x):
         # activate the weight matrices
+        bsz = x.shape[0]
         X_curr = x
         n_hidden = len(self.W)
+
+        self.stored_activations.append(X_curr)
         for layer_idx in range(0, n_hidden):
-            X_prev = X_curr
-            lin_comb = np.dot(np.transpose(self.W[layer_idx]), X_prev) + self.b[layer_idx]
-            X_curr = self.activations[layer_idx].forward(lin_comb)
+            X_prev = X_curr # bsz x nhid[l-1]
+            X_prev = np.reshape(X_prev, (bsz, 1, -1)) # bsz x 1 x nhid[l-1]
+            # W = bsz x nhid[l] x nhid[l-1] | X.T = bsz x nhid[l-1] x 1
+            lin_comb = np.matmul(self.W[layer_idx], X_prev.transpose([0,2,1])) + self.b[layer_idx] # bsz x nhid[l] x 1
+            X_curr = self.activations[layer_idx].forward(lin_comb).squeeze(axis=2) # bsz x nhid[l]
             # saving input and activated input for gradient computation
-            self.stored_activations.append((X_prev, X_curr))
+            self.stored_activations.append(X_curr)
 
         return X_curr
 
@@ -297,8 +308,40 @@ class MLP(object):
         raise NotImplemented
 
     def backward(self, labels):
+        bsz = labels.shape[0]
+        # dL/do
+        dAct = self.criterion.derivative() # [bsz x label_size]
+        assert bsz == dAct.shape[0]
+        dAct = np.expand_dims(dAct, axis=2) # [bsz x label_size x 1]
+        # do/dW
+        h = self.stored_activations[-1] # [bsz x 100]
+        h = np.expand_dims(h, axis=1) # [bsz x 1 x 100]
+        # dL/dW = dL/do[bsz x label_size x 1] * do/dW [bsz x 1 x 100]
+        self.dW[-1] = np.matmul(dAct, h) # [bsz x label_size x 100]
+        # dL/db = dL/do x I
+        dOut_prev = dAct.squeeze(axis=2)
+        self.db[-1] = dOut_prev
 
-        raise NotImplemented
+        W_prev = self.W[-1] #[bsz x nhid[l] x nhid[l-1]]
+
+        for layer_idx in reversed(range(0,self.nlayers-1)):
+            dOut_prev = np.expand_dims(dOut_prev, axis=1)
+            # dL/dh = dL/do x do/dh = dl/do x W_prev = [bsz x nhid[l+1]] x [bsz x nhid[l+1] x nhid[l]]
+            dAct_curr = np.matmul(dOut_prev, W_prev) # [bsz x 1 x nhid[l]]
+            # dh/dq
+            dAct_Out = self.activations[layer_idx].derivative() # bsz x nhid[l] x nhid[l]
+            # dL/dq = dL/dh x dh/dq
+            dLoss_Out = np.matmul(dAct_curr, dAct_Out) # bsz x 1 x nhid[l]
+            # dq/dW
+            h = self.stored_activations[layer_idx] # bsz x nhid[l-1]
+            h = np.expand_dims(h, axis=1) # bsz x 1 x nhid[l-1]
+            # dL/dW = dL/dq x dq/dW
+            self.dW[layer_idx] = np.matmul(dLoss_Out.transpose([0,2,1]), h) # bsz x nhid[l] x nhid[l-1]
+            # dL/db = dL/dq
+            self.db[layer_idx] = dLoss_Out.squeeze(axis=1)
+            dOut_prev = dLoss_Out
+            W_prev = self.W[layer_idx]
+
 
     def __call__(self, x):
         return self.forward(x)
@@ -340,11 +383,14 @@ def get_training_stats(mlp, dset, nepochs, batch_size):
 
         # Per epoch setup ...
         prev_b = 0
+        train_loss = 0
         for b in range(0, len(trainx), batch_size):
+            # inputs are row vectors batch_size x 1568
             X_in = trainx[prev_b:b]
+            # labels batch_size x 19
             labels = trainy[prev_b:b]
-            logits = mlp(X_in)
-            loss = mlp.criterion.forward(logits, labels)
+            logits = mlp(X_in) # bsz x out_size
+            train_loss += mlp.criterion.forward(logits, labels)
             mlp.backward(labels)
             prev_b = b
 

@@ -10,31 +10,35 @@ def gen_image(arr):
 
 def load_instance(line, test=False):
     pixels = line.split(",")
-    label = pixels[-1]
-    digit1 = []
-    digit2 = []
-    i=0
-    while i < len(pixels) -1:
-        digit1.extend(pixels[i:i+28])
-        digit2.extend(pixels[i+28:i+56])
-        i+=56
+    label = int(pixels[-1].strip())
+    digits = [i.strip() for i in pixels[0:-1]]
+    # digit1 = []
+    # digit2 = []
+    # i=0
+    # while i < len(pixels)-1:
+    #     digit1.extend([float(i.strip()) for i in pixels[i:i+28]])
+    #     digit2.extend([float(i.strip()) for i in pixels[i+28:i+56]])
+    #     i+=56
 
-    return np.array(digit1, dtype=float), np.array(digit2, dtype=float), label
+    # return np.array(digit1, dtype=float), np.array(digit2, dtype=float), label
+    return digits, label
 
 
 def load_data(filepath):
     digits = []
+    one_hot_labels = []
     labels = []
     with open(filepath, 'r') as fp:
         filename, _ = os.path.splitext(os.path.basename(filepath))
         for line in fp.readlines():
             one_hot_label = np.zeros(19)
-            dig1, dig2, label = load_instance(line)
+            pairs, label = load_instance(line)
             one_hot_label[int(label)] = 1
-            digits.append(dig1+dig2)
-            labels.append(one_hot_label)
+            digits.append(pairs)
+            one_hot_labels.append(one_hot_label)
+            labels.append(label)
             # gen_image(dig1).show()
             # gen_image(dig2).show()
-    return digits, labels
+    return digits, one_hot_labels, labels
             
 

@@ -4,7 +4,10 @@ import numpy as np
 import os
 import sys
 from data_loader import load_data
-
+import argparse
+from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
+import pickle
 
 class Activation(object):
 
@@ -263,12 +266,12 @@ class MLP(object):
     A simple multilayer perceptron
     """
 
-    def __init__(self, input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion, lr, l2, momentum=0.0, dropout=0.0, num_bn_layers=0):
+    def __init__(self, input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion, lr, l2, momentum=0.0, dropout=0.0, batch_norm=False):
 
         # Don't change this -->
         self.train_mode = True
-        self.num_bn_layers = num_bn_layers
-        self.bn = num_bn_layers > 0
+
+        self.bn = batch_norm
         self.nlayers = len(hiddens) + 1
         self.input_size = input_size
         self.output_size = output_size
@@ -488,24 +491,36 @@ def get_training_stats(mlp, dset, nepochs, batch_size):
         # error_rate= np.sum(y_hot != trainy)/len(trainy)
         print("Epoch {} Training loss:{} Train-Err:{}".format(e, train_loss/len(trainx), error_rate*100))
         training_losses.append(train_loss/len(trainx))
+        training_errors.append(error_rate)
 
-        for b in range(0, len(valx), batch_size):
 
-            pass  # Remove this line when you start implementing this
-            # Val ...
+        logits = mlp.forward(valx)
+        sfmax, loss = mlp.criterion.forward(logits, valy)
+        val_loss = np.sum(loss)
+        y_hat = np.argmax(sfmax, axis=1)
+        # print(y_hat, trainy_num)
+        error_rate = np.sum([y_hat[i] != valy_num[i] for i in range(0, len(valy_num))]) / len(valy_num)
+        # error_rate= np.sum(y_hot != trainy)/len(trainy)
+        print("======== Validation loss:{} Err-Rate:{} ========\n".format(val_loss / len(valy_num), error_rate * 100))
+        validation_losses.append(val_loss / len(valy_num))
+        validation_errors.append(error_rate)
 
         # Accumulate data...
 
     # Cleanup ...
 
-    for b in range(0, len(testx), batch_size):
-
-        pass  # Remove this line when you start implementing this
-        # Test ...
+    logits = mlp.forward(testx)
+    sfmax, loss = mlp.criterion.forward(logits, testy)
+    test_loss = np.sum(loss)
+    y_hat = np.argmax(sfmax, axis=1)
+    # print(y_hat, trainy_num)
+    test_error_rate = np.sum([y_hat[i] != testy_num[i] for i in range(0, len(testy_num))]) / len(testy_num)
+    # error_rate= np.sum(y_hot != trainy)/len(trainy)
+    print("\t Test loss:{} Err-Rate:{} \n".format(test_loss / len(testy_num), test_error_rate * 100))
 
     # Return results ...
 
-    # return (training_losses, training_errors, validation_losses, validation_errors)
+    return (training_losses, training_errors, validation_losses, validation_errors, test_error_rate, mlp.W[0])
 
 def load_save_data(directory_path):
     trainX = []
@@ -544,11 +559,66 @@ def load_save_data(directory_path):
             np.save("./testY.npy", testY)
             np.save("./testY_numbers.npy", number_labels)
 
+def plot_trend(x_axis, train_vals, valid_vals, x_label, y_label, filename, title, x_ticks=1):
+
+    fig = plt.figure()
+    plt.plot(x_axis, train_vals)
+    plt.plot(x_axis, valid_vals)
+
+    plt.xticks(range(min(x_axis), max(x_axis) + 1, x_ticks))
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.legend(labels=['train', 'valid'])
+    plt.title(title)
+    fig.savefig(filename)
+
+def plot_multi_trend(x_axis, value_list, x_label, y_label, filename, title):
+    fig = plt.figure()
+    for val in value_list:
+        train_vals, param = val
+        plt.plot(x_axis, train_vals)
+        plt.legend(labels=['lr={}'.format(param)])
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.title(title)
+    fig.savefig(filename)
+
+def plot_weights(weights, img_len, filename):
+    np.save('weights.npy',weights)
+    weight_units = weights.reshape(-1, img_len)
+    fig = plt.figure(1, (28,56))
+    grid = ImageGrid(fig, 111,  # similar to subplot(111)
+                     nrows_ncols=(10, 10),  # creates 2x2 grid of axes
+                     axes_pad=0.1)  # pad between axes in inch.
+
+    plt.gray()
+    for i in range(5): #range(weight_units.shape[0]):
+        grid[i].imshow(weight_units[i].reshape(28,56))
+
+    fig.savefig(filename)
+
 if __name__ == '__main__':
     directory_path = "C:\\Users\\SumeetSingh\\Documents\\Lectures\\10-707\\HW-Code\\split_data_problem_5_hw1"
+    parser = argparse.ArgumentParser()
 
-    if len(sys.argv) > 1:
-        directory_path = sys.argv[1]
+    parser.add_argument('-bsz', type=float, help='Batch Size', dest='bsz', default=32)
+    parser.add_argument('-epochs', type=int, help='Num Epochs', dest='epochs', default=150)
+    parser.add_argument('-l', nargs='+', type=int, help='Hidden layer sizes', dest='hidden', default=[100])
+    parser.add_argument('-lr', type=float, help='Learning Rate', dest='lr', default=0.1)
+    parser.add_argument('-l2', type=float, help='Regularization', dest='l2', default=0.001)
+    parser.add_argument('-m', type=float, help='Momentum', dest='momentum', default=0.0)
+    parser.add_argument('-d', type=float, help='Dropout', dest='dropout', default=0.0)
+    parser.add_argument('--batch_norm', dest='batch_norm', default=False, action='store_true')
+    parser.add_argument('--loss_plot', dest='loss_plot', default=False, action='store_true')
+    parser.add_argument('--lr_plot', dest='lr_plot', default=False, action='store_true')
+    parser.add_argument('--m_plot', dest='m_plot', default=False, action='store_true')
+    parser.add_argument('--hid_plot', dest='hid_plot', default=False, action='store_true')
+    # parser.add_argument('--save_model', dest='save', default=False, action='store_true')
+
+    args = parser.parse_args()
+
+    # if len(sys.argv) > 1:
+    #     directory_path = sys.argv[1]
     # load_save_data(directory_path)
     # Setup ...
     trainX = np.load("./trainX.npy")
@@ -563,13 +633,94 @@ if __name__ == '__main__':
     dset = [(trainX, trainY, trainY_numbers), (validX, validY, validY_numbers), (testX, testY, testY_numbers)]
     input_size = len(trainX[0])
     output_size = 19
-    hiddens = [100]
-    activations = [Sigmoid(), Sigmoid()]
+    hiddens = args.hidden
+    activations = [Sigmoid() for _ in hiddens]
+
     weight_init_fn = random_normal_weight_init
     bias_init_fn = zeros_bias_init
     criterion = SoftmaxCrossEntropy()
-    lr = 0.1
-    batch_size = 32
-    mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion,
-              lr, l2=0.001, momentum=0, dropout=0.8, num_bn_layers=0)
-    get_training_stats(mlp, dset, 150, batch_size)
+    lr = args.lr
+    batch_size = args.bsz
+    epoch_axis = [ep for ep in range(args.epochs)]
+    if args.loss_plot:
+        mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion,
+                  lr=args.lr, l2=args.l2, momentum=args.momentum, dropout=args.dropout, batch_norm= args.batch_norm)
+
+        training_losses, training_errors, validation_losses, validation_errors, test_errors, weights = get_training_stats(mlp, dset, args.epochs, batch_size)
+        plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, args.momentum, args.dropout, args.batch_norm)
+
+        pickle.dump(plot_name)
+        plot_trend(epoch_axis, training_losses, validation_losses, 'epochs', 'loss', filename='loss_'+plot_name, title='loss vs epochs')
+        plot_trend(epoch_axis, training_errors, validation_errors, 'epochs', 'error_rate', filename='err_'+plot_name, title='error rate vs epochs')
+
+        plot_weights(weights, 1568, 'weights.png')
+    elif args.lr_plot:
+        errors = []
+        losses = []
+
+        for learning_rate in [0.1, 0.01, 0.2, 0.5]:
+            mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn,
+                      criterion,
+                      lr=learning_rate, l2=args.l2, momentum=args.momentum, dropout=args.dropout, batch_norm=args.batch_norm)
+
+            training_losses, training_errors, validation_losses, validation_errors, test_errors, weights = get_training_stats(
+                mlp, dset, args.epochs, batch_size)
+
+            plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, learning_rate, args.l2, args.momentum,
+                                                                   args.dropout, args.batch_norm)
+            pickle.dump(plot_name)
+            errors.append((training_errors, learning_rate))
+            losses.append((training_losses, learning_rate))
+            # plot in same file
+
+        plot_multi_trend(epoch_axis, losses, 'epochs', 'loss', filename='train_loss_learning_rate.png', title='loss vs learning_rate')
+        plot_multi_trend(epoch_axis, errors, 'epochs','error_rate', filename='train_error_learning_rate.png', title='error rate vs learning rate')
+
+
+    elif args.m_plot:
+        errors = []
+        losses = []
+        for momentum in [0, 0.5, 0.9]:
+            mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn,
+                      criterion,
+                      lr=args.lr, l2=args.l2, momentum=momentum, dropout=args.dropout, batch_norm=args.batch_norm)
+
+            training_losses, training_errors, validation_losses, validation_errors, test_errors, weights = get_training_stats(
+                mlp, dset, args.epochs, batch_size)
+            plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, momentum,
+                                                                   args.dropout,
+                                                                   args.batch_norm)
+            pickle.dump(plot_name)
+            errors.append((training_errors, momentum))
+            losses.append((training_losses, momentum))
+            # plot in same file
+        plot_multi_trend(epoch_axis, losses, 'epochs', 'loss', filename='train_loss_momentum.png',
+                         title='loss vs learning_rate')
+        plot_multi_trend(epoch_axis, errors, 'epochs', 'error_rate', filename='train_error_momentum.png',
+                         title='error rate vs learning rate')
+
+    elif args.hid_plot:
+        hid_units = [20, 100, 200, 500]
+        errors = []
+        losses = []
+        for hid_unit in hid_units:
+            hiddens = [hid_unit]
+            mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn,
+                      criterion,
+                      lr=args.lr, l2=args.l2, momentum=args.momentum, dropout=args.dropout,
+                      batch_norm=args.batch_norm)
+
+            training_losses, training_errors, validation_losses, validation_errors, test_error_rate, weights = get_training_stats(
+                mlp, dset, args.epochs, batch_size)
+            plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, args.momentum,
+                                                                   args.dropout,
+                                                                   args.batch_norm)
+            pickle.dump(plot_name)
+            errors.append((training_errors, hid_unit))
+            losses.append((training_losses, hid_unit))
+            # plot in same file
+
+        plot_multi_trend(epoch_axis, losses, 'epochs', 'loss', filename='train_loss_hidden_units.png',
+                         title='loss vs hidden units')
+        plot_multi_trend(epoch_axis, errors, 'epochs', 'error_rate', filename='train_error_hidden_units.png',
+                         title='error rate vs hidden units')

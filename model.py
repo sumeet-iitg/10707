@@ -654,13 +654,13 @@ if __name__ == '__main__':
                   lr=args.lr, l2=args.l2, momentum=args.momentum, dropout=args.dropout, batch_norm= args.batch_norm)
 
         training_losses, training_errors, validation_losses, validation_errors, test_errors, weights = get_training_stats(mlp, dset, args.epochs, batch_size)
-        plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, args.momentum, args.dropout, args.batch_norm)
+        plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}'.format(hiddens, args.lr, args.l2, args.momentum, args.dropout, args.batch_norm)
 
-        pickle_file(mlp, plot_name+'_pickle')
-        plot_trend(epoch_axis, training_losses, validation_losses, 'epochs', 'loss', filename='loss_'+plot_name, title='loss vs epochs')
-        plot_trend(epoch_axis, training_errors, validation_errors, 'epochs', 'error_rate', filename='err_'+plot_name, title='error rate vs epochs')
+        pickle_file(mlp, plot_name+'.pickle')
+        plot_trend(epoch_axis, training_losses, validation_losses, 'epochs', 'loss', filename='loss_'+plot_name+'.png', title='loss vs epochs')
+        plot_trend(epoch_axis, training_errors, validation_errors, 'epochs', 'error_rate', filename='err_'+plot_name+'.png', title='error rate vs epochs')
 
-        plot_weights(weights, 'weights.png')
+        plot_weights(weights, plot_name+'weights.png')
     elif args.lr_plot:
         errors = []
         losses = []

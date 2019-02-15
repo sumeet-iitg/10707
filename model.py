@@ -571,6 +571,7 @@ def plot_trend(x_axis, train_vals, valid_vals, x_label, y_label, filename, title
     plt.legend(labels=['train', 'valid'])
     plt.title(title)
     fig.savefig(filename)
+    plt.close()
 
 def plot_multi_trend(x_axis, value_list, x_label, y_label, filename, title):
     fig = plt.figure()
@@ -582,20 +583,26 @@ def plot_multi_trend(x_axis, value_list, x_label, y_label, filename, title):
     plt.ylabel(y_label)
     plt.title(title)
     fig.savefig(filename)
+    plt.close()
 
-def plot_weights(weights, img_len, filename):
-    np.save('weights.npy',weights)
-    weight_units = weights.reshape(-1, img_len)
+def plot_weights(weights, filename):
+    # np.save('weights.npy',weights)
+    weight_units = weights.reshape(-1, 1568)
     fig = plt.figure(1, (28,56))
     grid = ImageGrid(fig, 111,  # similar to subplot(111)
                      nrows_ncols=(10, 10),  # creates 2x2 grid of axes
                      axes_pad=0.1)  # pad between axes in inch.
 
     plt.gray()
-    for i in range(5): #range(weight_units.shape[0]):
+    for i in range(100):
         grid[i].imshow(weight_units[i].reshape(28,56))
 
     fig.savefig(filename)
+    plt.close()
+
+def pickle_file(obj, filename):
+    with open(filename, 'wb') as fp:
+        pickle.dump(obj,fp)
 
 if __name__ == '__main__':
     directory_path = "C:\\Users\\SumeetSingh\\Documents\\Lectures\\10-707\\HW-Code\\split_data_problem_5_hw1"
@@ -649,11 +656,11 @@ if __name__ == '__main__':
         training_losses, training_errors, validation_losses, validation_errors, test_errors, weights = get_training_stats(mlp, dset, args.epochs, batch_size)
         plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, args.momentum, args.dropout, args.batch_norm)
 
-        pickle.dump(plot_name)
+        pickle_file(mlp, plot_name+'_pickle')
         plot_trend(epoch_axis, training_losses, validation_losses, 'epochs', 'loss', filename='loss_'+plot_name, title='loss vs epochs')
         plot_trend(epoch_axis, training_errors, validation_errors, 'epochs', 'error_rate', filename='err_'+plot_name, title='error rate vs epochs')
 
-        plot_weights(weights, 1568, 'weights.png')
+        plot_weights(weights, 'weights.png')
     elif args.lr_plot:
         errors = []
         losses = []
@@ -668,7 +675,7 @@ if __name__ == '__main__':
 
             plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, learning_rate, args.l2, args.momentum,
                                                                    args.dropout, args.batch_norm)
-            pickle.dump(plot_name)
+
             errors.append((training_errors, learning_rate))
             losses.append((training_losses, learning_rate))
             # plot in same file

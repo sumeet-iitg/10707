@@ -559,13 +559,13 @@ def load_save_data(directory_path):
             np.save("./testY.npy", testY)
             np.save("./testY_numbers.npy", number_labels)
 
-def plot_trend(x_axis, train_vals, valid_vals, x_label, y_label, filename, title, x_ticks=1):
+def plot_trend(x_axis, train_vals, valid_vals, x_label, y_label, filename, title):
 
     fig = plt.figure()
     plt.plot(x_axis, train_vals)
     plt.plot(x_axis, valid_vals)
 
-    plt.xticks(range(min(x_axis), max(x_axis) + 1, x_ticks))
+    # plt.xticks(range(min(x_axis), max(x_axis) + 1, x_ticks))
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.legend(labels=['train', 'valid'])
@@ -575,10 +575,13 @@ def plot_trend(x_axis, train_vals, valid_vals, x_label, y_label, filename, title
 
 def plot_multi_trend(x_axis, value_list, x_label, y_label, filename, title):
     fig = plt.figure()
+    label_params = []
     for val in value_list:
         train_vals, param = val
         plt.plot(x_axis, train_vals)
-        plt.legend(labels=['lr={}'.format(param)])
+        label_params.append(param)
+
+    plt.legend(labels=label_params)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.title(title)
@@ -681,8 +684,7 @@ if __name__ == '__main__':
             # plot in same file
 
         plot_multi_trend(epoch_axis, losses, 'epochs', 'loss', filename='train_loss_learning_rate.png', title='loss vs learning_rate')
-        plot_multi_trend(epoch_axis, errors, 'epochs','error_rate', filename='train_error_learning_rate.png', title='error rate vs learning rate')
-
+        plot_multi_trend(epoch_axis, errors, 'epochs', 'error_rate', filename='train_error_learning_rate.png', title='error rate vs learning rate')
 
     elif args.m_plot:
         errors = []
@@ -697,7 +699,7 @@ if __name__ == '__main__':
             plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, momentum,
                                                                    args.dropout,
                                                                    args.batch_norm)
-            pickle.dump(plot_name)
+            pickle_file(mlp, plot_name + '.pickle')
             errors.append((training_errors, momentum))
             losses.append((training_losses, momentum))
             # plot in same file
@@ -722,7 +724,7 @@ if __name__ == '__main__':
             plot_name = 'h={}_lr={}_l2={}_m={}_d={}_{}.png'.format(hiddens, args.lr, args.l2, args.momentum,
                                                                    args.dropout,
                                                                    args.batch_norm)
-            pickle.dump(plot_name)
+            pickle_file(mlp, plot_name + '.pickle')
             errors.append((training_errors, hid_unit))
             losses.append((training_losses, hid_unit))
             # plot in same file

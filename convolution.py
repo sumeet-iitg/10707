@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import pickle
 
-from utils import im2col_indices, col2im_indices
+from utils import im2col_indices, col2im_indices, toOneHot
 
 class Activation(object):
 
@@ -52,7 +52,6 @@ class ReLU(Activation):
 def random_normal_weight_init(dimensions):
     return np.random.uniform(-1, 1, size=dimensions)
 
-
 def zeros_bias_init(d):
     return np.zeros(d)
 
@@ -68,7 +67,7 @@ class Layer(object):
         return NotImplementedError
 
 class Conv2d(Layer):
-    def __init__(self, input_shape, num_filters=1, kernel_size=3, stride=1, padding=0):
+    def __init__(self, input_shape, num_filters=1, kernel_size=3, stride=1, padding=1):
         super(Conv2d,self).__init__()
 
         self.channels, self.height_in, self.width_in = input_shape
@@ -115,7 +114,6 @@ class Pooling(Layer):
         self.height_out = (self.height_in - pool_size)/pool_size + 1
         self.width_out = (self.width_in - pool_size)/pool_size + 1
 
-
     def forward(self, x):
         self.bsz = x.shape[0]
         # reshape to bsz*Filters, 1, H, W to make im2col arrange pool strides column-wise
@@ -125,17 +123,15 @@ class Pooling(Layer):
         max_ids = np.argmax(input_to_cols, axis=0)
         self.max_ids = max_ids
         pool_out = input_to_cols[max_ids, :].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
-        pool_out = pool_out.transpose(3, 0, 1,2)
+        pool_out = pool_out.transpose(3, 0, 1, 2)
 
         return pool_out
 
     def backward(self, delta):
-
         dX_cols = np.zeros(self.input.shape) # bsz,
         # delta shape: bsz, num_filters, h_out, w_out --> num_filters, h_out, w_out, bsz
         delta_flat = delta.transpose(2, 3, 0, 1).ravel()
         dX_cols[self.max_ids, :] = delta_flat
-
         dX = col2im_indices(dX_cols, (self.bsz * self.num_filters, 1,  self.height_in, self.width_in),
                             self.pool_size, self.pool_size, padding=0, stride=self.stride)
 
@@ -221,6 +217,125 @@ class SoftmaxCrossEntropy(Criterion):
         # self.sm might be useful here...
         # batch is the first dim here, i.e. these are batch of row vectors
         return self.sm - self.labels
+
+def forward_pass(conv_net_layers, input, labels):
+    pass
+
+def backward_pass(conv_net_layers):
+    pass
+
+def update_pass(conv_net_layers, weight_updates, params):
+    pass
+
+def train_convnet(data, params):
+    train, val, test = data
+    input_shape = (3, 32, 32)
+    output_classes = 10
+    conv_layer = Conv2d(input_shape, num_filters=params.num_Filters, kernel_size=params.kernel_size, stride=1, padding=params.pad_size)
+    relu  = ReLU()
+    conv_out_shape = (params.num_Filters, conv_layer.conv_out_ht, conv_layer.conv_out_wd)
+    pool_layer = Pooling(conv_out_shape, params.pad_size)
+    fully_connected_input_size = params.num_Filters*pool_layer.height_out*pool_layer.width_out
+    full_connected_layer = FullyConnectedLayer(fully_connected_input_size, output_classes)
+    sfmax_layer = SoftmaxCrossEntropy()
+    conv_net_layers = [conv_layer, relu, pool_layer, full_connected_layer, sfmax_layer]
+
+    for e in range(params.epochs):
+        # train
+        train_loss = 0
+        for b in range(0, len(train), params.bsz):
+            sfmax, loss_mat = forward_pass(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
+            loss = np.sum(loss_mat)
+            train_loss += loss
+            weight_updates = backward_pass(conv_net_layers)
+            update_pass(conv_net_layers, weight_updates, params)
+
+def img_data_from_dict(data_dict, num_pts):
+    # each row in this image array is an array of dim 3 x 32 x 32
+    images = np.empty((num_pts, 3, 32, 32))
+
+    for i in range(num_pts):
+        img_channels = np.empty((3, 32, 32))
+        img_start = 0
+        for c in range(3):
+            img_end = img_start + 32*32
+            img_channels[c] = data_dict[i,img_start:img_end].reshape(32,32)
+            img_start = img_end
+        images[i] = img_channels
+    return images
+
+def get_CIFAR10_data(file_path, save_pickle_path):
+    with open(file_path , 'rb') as f:
+        data = pickle.load(f)
+
+    img_data = {'train':{}, 'val':{}, 'test':{}}
+    for data_type in ['train', 'val', 'test']:
+        img_data[data_type]['data'] = img_data_from_dict(data[data_type]['data'], len(data[data_type]['labels']))
+        img_data[data_type]['labels'] = toOneHot(data[data_type]['labels'], 10)
+
+    with open(save_pickle_path, 'wb') as fout:
+        pickle.dump(img_data, fout)
+
+    return img_data['train'], img_data['val'], img_data['test']
+
+def load_CIFAR10_data(image_path):
+    with open(image_path , 'rb') as f:
+        data = pickle.load(f)
+    return data['train'], data['val'], data['test']
+
+if __name__ == '__main__':
+    file_path = "./sampledCIFAR10/sampledCIFAR10"
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-bsz', type=float, help='Batch Size', dest='bsz', default=32)
+    parser.add_argument('-epochs', type=int, help='Num Epochs', dest='epochs', default=150)
+    parser.add_argument('-l', nargs='+', type=int, help='Hidden layer sizes', dest='hidden', default=[100])
+    parser.add_argument('-lr', type=float, help='Learning Rate', dest='lr', default=0.1)
+    parser.add_argument('-l2', type=float, help='Regularization', dest='l2', default=0.001)
+    parser.add_argument('-m', type=float, help='Momentum', dest='momentum', default=0.0)
+    parser.add_argument('-d', type=float, help='Dropout', dest='dropout', default=0.0)
+    parser.add_argument('-k', type=float, help='Kernel Size', dest='kernel_size', default=3)
+    parser.add_argument('-nF', type=float, help='Num Filters', dest='num_Filters', default=3)
+    parser.add_argument('-pd', type=float, help='Padding Size', dest='pad_size', default=1)
+    parser.add_argument('-pool', type=float, help='Pool Size', dest='pool_size', default=3)
+    parser.add_argument('--loss_plot', dest='loss_plot', default=False, action='store_true')
+    parser.add_argument('--lr_plot', dest='lr_plot', default=False, action='store_true')
+    parser.add_argument('--m_plot', dest='m_plot', default=False, action='store_true')
+    parser.add_argument('--hid_plot', dest='hid_plot', default=False, action='store_true')
+    parser.add_argument('--p_load', dest='p_load', default=False, action='store_true')
+    # parser.add_argument('--save_model', dest='save', default=False, action='store_true')
+
+    args = parser.parse_args()
+
+    if len(sys.argv) > 1:
+        directory_path = sys.argv[1]
+
+    pickle_path = file_path+'_pickle'
+    if not args.p_load:
+        train, valid, test = get_CIFAR10_data(file_path, pickle_path)
+    else:
+        train, valid, test = load_CIFAR10_data(pickle_path)
+
+    train_size = train['data'].shape[0]
+    val_size = valid['data'].shape[0]
+    test_size = test['data'].shape[0]
+    print("sizes {} {} {}".format(train_size, val_size, test_size))
+    train_convnet((train, valid, test), args)
+    # output_size = 19
+    # hiddens = args.hidden
+    # activations = [Sigmoid() for _ in hiddens]
+    #
+    # weight_init_fn = random_normal_weight_init
+    # bias_init_fn = zeros_bias_init
+    # criterion = SoftmaxCrossEntropy()
+    # lr = args.lr
+    # batch_size = args.bsz
+    # epoch_axis = [ep for ep in range(args.epochs)]
+    #
+    # mlp = MLP(input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion,
+    #               lr=args.lr, l2=args.l2, momentum=args.momentum, dropout=args.dropout, batch_norm= args.batch_norm)
+
+
 
 
 

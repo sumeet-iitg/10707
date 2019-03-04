@@ -84,8 +84,8 @@ class Conv2d(Layer):
         self.b = np.zeros((num_filters,1))
         self.db = np.zeros((num_filters,1))
 
-        self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding) / self.stride + 1  # num of rows
-        self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding) / self.stride + 1  # num of cols
+        self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)/self.stride + 1 # num of rows
+        self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding)/self.stride + 1 # num of cols
 
     def forward(self, x):
         bsz = x.shape[0]
@@ -107,12 +107,63 @@ class Conv2d(Layer):
         return self.dW, self.db
 
 class Pooling(Layer):
-    def __init__(self, input_shape, num_filters=1, kernel_size=3, stride=1, padding=0):
-        super(FCC,self).__init__()
+    def __init__(self, input_shape, pool_size=3):
+        super(Pooling,self).__init__()
+        self.num_filters, self.height_in, self.width_in = input_shape
+        self.pool_size = pool_size
+        self.stride = pool_size
+        self.height_out = (self.height_in - pool_size)/pool_size + 1
+        self.width_out = (self.width_in - pool_size)/pool_size + 1
 
-class FCC(Layer):
-    def __init__(self, input_shape, num_filters=1, kernel_size=3, stride=1, padding=0):
-        super(FCC,self).__init__()
+
+    def forward(self, x):
+        self.bsz = x.shape[0]
+        # reshape to bsz*Filters, 1, H, W to make im2col arrange pool strides column-wise
+        x_reshaped = x.reshape(self.bsz * self.num_filters, 1, self.height_in, self.width_in)
+        input_to_cols = im2col_indices(x_reshaped, self.pool_size, self.pool_size, padding=0, stride=self.stride)  # [H*W, out_wd*bsz*F]
+        self.input = input_to_cols
+        max_ids = np.argmax(input_to_cols, axis=0)
+        self.max_ids = max_ids
+        pool_out = input_to_cols[max_ids, :].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
+        pool_out = pool_out.transpose(3, 0, 1,2)
+
+        return pool_out
+
+    def backward(self, delta):
+
+        dX_cols = np.zeros(self.input.shape) # bsz,
+        # delta shape: bsz, num_filters, h_out, w_out --> num_filters, h_out, w_out, bsz
+        delta_flat = delta.transpose(2, 3, 0, 1).ravel()
+        dX_cols[self.max_ids, :] = delta_flat
+
+        dX = col2im_indices(dX_cols, (self.bsz * self.num_filters, 1,  self.height_in, self.width_in),
+                            self.pool_size, self.pool_size, padding=0, stride=self.stride)
+
+        return dX.reshape(self.bsz ,self.num_filters, self.height_in, self.width_in)
+
+class FullyConnectedLayer(Layer):
+    def __init__(self, input_size, output_size):
+        super(FullyConnectedLayer,self).__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+        self.W = random_normal_weight_init((output_size, input_size))
+        self.dW = np.zeros(self.W.shape)
+        self.b = np.zeros(output_size)
+        self.db = np.zeros(self.b.shape)
+
+    def forward(self, x):
+        self.input = x
+        lin_comb = np.matmul(self.W, x.T).T + self.b
+        return lin_comb # batch_size, out_size
+
+    def backward(self, delta):
+        # delta = bsz x out_size
+        self.dW = np.matmul(delta.T, self.input) # out_size x in_size
+        self.db = np.sum(delta, axis=0)
+        self.dX = np.matmul(delta, self.W) # bsz x out_size x out_size x In_size
+
+        return self.dW, self.db, self.dX
+
 
 class Criterion(object):
 
@@ -170,10 +221,6 @@ class SoftmaxCrossEntropy(Criterion):
         # self.sm might be useful here...
         # batch is the first dim here, i.e. these are batch of row vectors
         return self.sm - self.labels
-
-
-class ConvNet(object):
-    def __init__(self, input_size, output_size, hiddens, batch_size, activations, weight_init_fn, bias_init_fn, criterion, lr, l2, momentum=0.0, dropout=0.0):
 
 
 

@@ -87,23 +87,25 @@ class Conv2d(Layer):
         self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding)/self.stride + 1 # num of cols
 
     def forward(self, x):
-        bsz = x.shape[0]
+        self.bsz = x.shape[0]
         input_to_cols = im2col_indices(x, self.kernel_size, self.kernel_size) # [WF*HF*C, out_wd*bsz]
         self.input = input_to_cols
         conv_out = self.W.reshape(self.num_filters, -1).dot(input_to_cols) + self.b
 
-        conv_out = conv_out.reshape(self.num_filters, self.conv_out_ht, self.conv_out_wd, bsz)
+        conv_out = conv_out.reshape(self.num_filters, self.conv_out_ht, self.conv_out_wd, self.bsz)
         conv_out = conv_out.transpose(3,0,1,2)
         return conv_out
 
     def backward(self, delta):
         db = np.sum(delta, axis=(0,2,3)) # sum along all but the filters dimension
-        self.db = db.reshape(self.num_filters, -1)
+        db = db.reshape(self.num_filters, -1)
+        self.db = db/self.bsz
 
         delta_reshaped = delta.transpose(1, 2, 3, 0).reshape(self.num_filters, -1)
-        self.dW = delta_reshaped.dot(self.input.T).reshape(self.W.shape)
+        dW = delta_reshaped.dot(self.input.T).reshape(self.W.shape)
+        self.dW = dW/self.bsz
 
-        return self.dW, self.db
+        return dW, db
 
 class Pooling(Layer):
     def __init__(self, input_shape, pool_size=3):
@@ -148,17 +150,20 @@ class FullyConnectedLayer(Layer):
         self.db = np.zeros(self.b.shape)
 
     def forward(self, x):
+        self.bsz = x.shape[0]
         self.input = x
         lin_comb = np.matmul(self.W, x.T).T + self.b
         return lin_comb # batch_size, out_size
 
     def backward(self, delta):
         # delta = bsz x out_size
-        self.dW = np.matmul(delta.T, self.input) # out_size x in_size
-        self.db = np.sum(delta, axis=0)
-        self.dX = np.matmul(delta, self.W) # bsz x out_size x out_size x In_size
+        dW = np.matmul(delta.T, self.input) # out_size x in_size
+        self.dW = dW/self.bsz # averaging the gradients here for neater self update
+        db = np.sum(delta, axis=0)
+        self.db = db/self.bsz # averaging the gradients here for neater self update
+        dX = np.matmul(delta, self.W) # bsz x out_size x out_size x In_size
 
-        return self.dW, self.db, self.dX
+        return dW, db, dX
 
 
 class Criterion(object):
@@ -219,13 +224,44 @@ class SoftmaxCrossEntropy(Criterion):
         return self.sm - self.labels
 
 def forward_pass(conv_net_layers, input, labels):
-    pass
+    bsz = input.shape[0]
+    conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
+    conv_out = conv_layer.forward(input)
+    relu_out = relu.forward(conv_out)
+    pool_out = pooling.forward(relu_out)
+    # flattening the pooling output
+    linear_out = fully_conn_layer.forward(pool_out.reshape(bsz, -1))
+    return sfmax_layer.forward(linear_out, labels)
 
 def backward_pass(conv_net_layers):
-    pass
+    conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
+
+    prev_dW2 = fully_conn_layer.dW
+    prev_db2 = fully_conn_layer.db
+    prev_dW1 = conv_layer.dW
+    prev_db1 = conv_layer.db
+
+    # dL/dO
+    dLoss_final = sfmax_layer.derivative()
+    dW2, db2, dX = fully_conn_layer.backward(dLoss_final)
+    dX = dX.reshape(-1, pooling.num_filters, pooling.height_out, pooling.width_out)
+    dLoss_pool = pooling.backward(dX)
+    dLoss_relu = relu.derivative()
+    dLoss_conv = np.multiply(dLoss_pool, dLoss_relu)
+    dW1, db1 = conv_layer.backward(dLoss_conv)
+
+    return [(dW1, db1, prev_dW1, prev_db1), (dW2, db2, prev_dW2, prev_db2)]
 
 def update_pass(conv_net_layers, weight_updates, params):
-    pass
+    conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
+    dW1, db1, prev_dW1, prev_db1 = weight_updates[0]
+    dW2, db2, prev_dW2, prev_db2 = weight_updates[1]
+
+    conv_layer.W -= params.lr * (dW1 + args.momentum*prev_dW1 + 0.5*args.l2*conv_layer.W)
+    conv_layer.b -= params.lr * (db1 + args.momentum*prev_db1)
+
+    pooling.W -= params.lr * (dW2 + args.momentum * prev_dW2 + 0.5 * args.l2 * pooling.W)
+    pooling.b -= params.lr * (db2 + args.momentum * prev_db2)
 
 def train_convnet(data, params):
     train, val, test = data
@@ -238,7 +274,7 @@ def train_convnet(data, params):
     fully_connected_input_size = params.num_Filters*pool_layer.height_out*pool_layer.width_out
     full_connected_layer = FullyConnectedLayer(fully_connected_input_size, output_classes)
     sfmax_layer = SoftmaxCrossEntropy()
-    conv_net_layers = [conv_layer, relu, pool_layer, full_connected_layer, sfmax_layer]
+    conv_net_layers = (conv_layer, relu, pool_layer, full_connected_layer, sfmax_layer)
 
     for e in range(params.epochs):
         # train

@@ -49,8 +49,10 @@ class ReLU(Activation):
         return 1.0*(self.relu > 0)
 
 
-def random_normal_weight_init(dimensions):
-    return np.random.uniform(-1, 1, size=dimensions)
+def random_normal_weight_init(d0, d1):
+    b = np.sqrt(6) / np.sqrt(d0 + d1)
+    return np.random.uniform(-b, b, size=(d0, d1))
+
 
 def zeros_bias_init(d):
     return np.zeros(d)
@@ -77,14 +79,14 @@ class Conv2d(Layer):
         self.kernel_size = kernel_size
 
         # weights of each filter
-        self.W = random_normal_weight_init((num_filters, self.channels, kernel_size, kernel_size))
+        self.W = np.tile(random_normal_weight_init(kernel_size, kernel_size), (num_filters, self.channels, 1, 1))
         self.dW = np.zeros(self.W.shape)
 
         self.b = np.zeros((num_filters,1))
         self.db = np.zeros((num_filters,1))
 
-        self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)/self.stride + 1 # num of rows
-        self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding)/self.stride + 1 # num of cols
+        self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of rows
+        self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of cols
 
     def forward(self, x):
         self.bsz = x.shape[0]
@@ -113,8 +115,8 @@ class Pooling(Layer):
         self.num_filters, self.height_in, self.width_in = input_shape
         self.pool_size = pool_size
         self.stride = pool_size
-        self.height_out = (self.height_in - pool_size)/pool_size + 1
-        self.width_out = (self.width_in - pool_size)/pool_size + 1
+        self.height_out = (self.height_in - pool_size)//pool_size + 1
+        self.width_out = (self.width_in - pool_size)//pool_size + 1
 
     def forward(self, x):
         self.bsz = x.shape[0]
@@ -124,7 +126,7 @@ class Pooling(Layer):
         self.input = input_to_cols
         max_ids = np.argmax(input_to_cols, axis=0)
         self.max_ids = max_ids
-        pool_out = input_to_cols[max_ids, :].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
+        pool_out = input_to_cols[:,max_ids].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
         pool_out = pool_out.transpose(3, 0, 1, 2)
 
         return pool_out
@@ -144,7 +146,7 @@ class FullyConnectedLayer(Layer):
         super(FullyConnectedLayer,self).__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.W = random_normal_weight_init((output_size, input_size))
+        self.W = random_normal_weight_init(output_size, input_size)
         self.dW = np.zeros(self.W.shape)
         self.b = np.zeros(output_size)
         self.db = np.zeros(self.b.shape)
@@ -201,13 +203,12 @@ class SoftmaxCrossEntropy(Criterion):
         self.sm = None
 
     def forward(self, x, y):
-
         bsz = x.shape[0]
         self.logits = x # bsz x label_size
         self.labels = y # bsz x label_size
         exponents = np.exp(self.logits)
         # following for numerical stability
-        # exponents = np.exp(self.logits - np.max(self.logits,axis=1)
+        exponents = np.exp(self.logits - np.max(self.logits,axis=1, keepdims=True))
         sum_exp = np.sum(exponents, axis=1, keepdims=True)
         # assuming batch is the 0th dimension
         self.sm = exponents/(sum_exp) # bsz x label_size x 1 --> bsz x label_size
@@ -260,8 +261,8 @@ def update_pass(conv_net_layers, weight_updates, params):
     conv_layer.W -= params.lr * (dW1 + args.momentum*prev_dW1 + 0.5*args.l2*conv_layer.W)
     conv_layer.b -= params.lr * (db1 + args.momentum*prev_db1)
 
-    pooling.W -= params.lr * (dW2 + args.momentum * prev_dW2 + 0.5 * args.l2 * pooling.W)
-    pooling.b -= params.lr * (db2 + args.momentum * prev_db2)
+    fully_conn_layer.W -= params.lr * (dW2 + args.momentum * prev_dW2 + 0.5 * args.l2 * fully_conn_layer.W)
+    fully_conn_layer.b -= params.lr * (db2 + args.momentum * prev_db2)
 
 def train_convnet(data, params):
     train, val, test = data
@@ -285,6 +286,13 @@ def train_convnet(data, params):
             train_loss += loss
             weight_updates = backward_pass(conv_net_layers)
             update_pass(conv_net_layers, weight_updates, params)
+        sfmax, loss_mat = forward_pass(conv_net_layers, train['data'], train['labels'])
+        loss = np.sum(loss_mat)
+        train_loss = loss
+        y_hat = np.argmax(sfmax, axis=1)
+        # print(y_hat, trainy_num)
+        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
+        print("Epoch:{} Train Loss:{} Error Rate:{}".format(e, train_loss, error_rate))
 
 def img_data_from_dict(data_dict, num_pts):
     # each row in this image array is an array of dim 3 x 32 x 32
@@ -308,6 +316,7 @@ def get_CIFAR10_data(file_path, save_pickle_path):
     for data_type in ['train', 'val', 'test']:
         img_data[data_type]['data'] = img_data_from_dict(data[data_type]['data'], len(data[data_type]['labels']))
         img_data[data_type]['labels'] = toOneHot(data[data_type]['labels'], 10)
+        img_data[data_type]['numbers'] = data[data_type]['labels']
 
     with open(save_pickle_path, 'wb') as fout:
         pickle.dump(img_data, fout)
@@ -333,7 +342,7 @@ if __name__ == '__main__':
     parser.add_argument('-k', type=float, help='Kernel Size', dest='kernel_size', default=3)
     parser.add_argument('-nF', type=float, help='Num Filters', dest='num_Filters', default=3)
     parser.add_argument('-pd', type=float, help='Padding Size', dest='pad_size', default=1)
-    parser.add_argument('-pool', type=float, help='Pool Size', dest='pool_size', default=3)
+    parser.add_argument('-pool', type=float, help='Pool Size', dest='pool_size', default=2)
     parser.add_argument('--loss_plot', dest='loss_plot', default=False, action='store_true')
     parser.add_argument('--lr_plot', dest='lr_plot', default=False, action='store_true')
     parser.add_argument('--m_plot', dest='m_plot', default=False, action='store_true')

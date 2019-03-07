@@ -1,7 +1,6 @@
 import numpy as np
 import os
 import sys
-from data_loader import load_data
 import argparse
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -76,10 +75,11 @@ class Conv2d(Layer):
         self.kernel_size = kernel_size
 
         # weights of each filter
+        # self.W = np.random.uniform(-2,2,size=(num_filters, self.channels, kernel_size, kernel_size))
         self.W = xavier_init_relu(kernel_size, kernel_size, (num_filters, self.channels, kernel_size, kernel_size))
         self.dW = np.zeros(self.W.shape)
 
-        self.b = 2*np.random.randn(num_filters, 1)
+        self.b = np.random.uniform(-2,2, size=(num_filters, 1))
         self.db = np.zeros((num_filters, 1))
 
         self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of rows
@@ -98,11 +98,11 @@ class Conv2d(Layer):
     def backward(self, delta):
         db = np.sum(delta, axis=(0,2,3)) # sum along all but the filters dimension
         db = db.reshape(self.num_filters, -1)
-        self.db = db/self.bsz
+        self.db = db
 
         delta_reshaped = delta.transpose(1, 2, 3, 0).reshape(self.num_filters, -1)
         dW = delta_reshaped.dot(self.input.T).reshape(self.W.shape)
-        self.dW = dW/self.bsz
+        self.dW = dW
 
         return dW, db
 
@@ -143,8 +143,8 @@ class Pooling(Layer):
         self.input = input_to_cols
         max_ids = np.argmax(input_to_cols, axis=0)
         self.max_ids = max_ids
-        pool_out = input_to_cols[max_ids,np.arange(input_to_cols.shape[1])].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
-        pool_out = pool_out.transpose(3, 0, 1, 2)
+        pool_out = input_to_cols[max_ids,np.arange(input_to_cols.shape[1])].reshape(self.height_out, self.width_out, self.bsz, self.num_filters)
+        pool_out = pool_out.transpose(2, 3, 0, 1)
 
         return pool_out
 
@@ -165,7 +165,7 @@ class FullyConnectedLayer(Layer):
         self.output_size = output_size
         self.W = random_normal_weight_init(output_size, input_size)
         self.dW = np.zeros(self.W.shape)
-        self.b = np.random.randn(output_size)
+        self.b = np.zeros(output_size)
         self.db = np.zeros(self.b.shape)
 
     def forward(self, x):
@@ -177,9 +177,9 @@ class FullyConnectedLayer(Layer):
     def backward(self, delta):
         # delta = bsz x out_size
         dW = np.matmul(delta.T, self.input) # out_size x in_size
-        self.dW = dW/self.bsz # averaging the gradients here for neater self update
+        self.dW = dW # averaging the gradients here for neater self update
         db = np.sum(delta, axis=0)
-        self.db = db/self.bsz # averaging the gradients here for neater self update
+        self.db = db # averaging the gradients here for neater self update
         dX = np.matmul(delta, self.W) # bsz x out_size x out_size x In_size
 
         return dW, db, dX
@@ -220,7 +220,7 @@ class SoftmaxCrossEntropy(Criterion):
         self.sm = None
 
     def forward(self, x, y):
-        bsz = x.shape[0]
+        self.bsz = float(x.shape[0])
         self.logits = x # bsz x label_size
         self.labels = y # bsz x label_size
         # exponents = np.exp(self.logits)
@@ -232,14 +232,14 @@ class SoftmaxCrossEntropy(Criterion):
         self.sm = log_softmax(x)
         # cross entropy for entire batch matrix
         # element-wise multiply bsz x label_size & bsz x label_size
-        x_entropy_loss = -np.multiply(self.sm, y) # bsz x label_size
+        x_entropy_loss = -np.multiply(self.sm, y)/self.bsz # bsz x label_size
         return self.sm, x_entropy_loss
 
     def derivative(self):
 
         # self.sm might be useful here...
         # batch is the first dim here, i.e. these are batch of row vectors
-        return np.exp(self.sm) - self.labels
+        return (np.exp(self.sm) - self.labels)/self.bsz
 
 def forward_pass_convnet(conv_net_layers, input, labels):
     bsz = input.shape[0]
@@ -254,6 +254,7 @@ def forward_pass_convnet(conv_net_layers, input, labels):
 def backward_pass_convnet(conv_net_layers):
     conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
 
+    bsz = conv_layer.bsz
     prev_dW2 = fully_conn_layer.dW
     prev_db2 = fully_conn_layer.db
     prev_dW1 = conv_layer.dW

@@ -233,7 +233,7 @@ class SoftmaxCrossEntropy(Criterion):
         # cross entropy for entire batch matrix
         # element-wise multiply bsz x label_size & bsz x label_size
         x_entropy_loss = -np.multiply(self.sm, y)/self.bsz # bsz x label_size
-        return self.sm, x_entropy_loss
+        return self.sm, np.sum(x_entropy_loss)
 
     def derivative(self):
 
@@ -325,13 +325,16 @@ def train_convnet(data, params):
                 dW, db, prev_dW, prev_db  = weight_updates[0]
                 print("Num Grad:{} Backward Grad:{}".format(num_grad, dW[0,0,0,2]))
             update_pass_convnet(conv_net_layers, weight_updates, params)
-        sfmax, loss_mat = forward_pass_convnet(conv_net_layers, train['data'], train['labels'])
-        loss = np.sum(loss_mat)
-        train_loss = loss
+        sfmax, train_loss = forward_pass_convnet(conv_net_layers, train['data'], train['labels'])
         y_hat = np.argmax(sfmax, axis=1)
         # print(y_hat, trainy_num)
-        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
-        print("Epoch:{} Train Loss:{} Error Rate:{}".format(e, train_loss, error_rate))
+        train_error = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
+
+        sfmax, val_loss = forward_pass_convnet(conv_net_layers, train['data'], train['labels'])
+        y_hat = np.argmax(sfmax, axis=1)
+        val_error = np.sum([y_hat[i] != val['numbers'][i] for i in range(0, len(val['numbers']))]) / len(val['numbers'])
+
+        print("Epoch:{} Train Loss:{} Train Error:{} Val Error:{}".format(e, train_loss, train_error, val_error))
 
 def forward_pass_2_layer_convnet(conv_net_layers, input, labels):
     bsz = input.shape[0]
@@ -392,8 +395,8 @@ def train_2_layer_convnet(data, params):
     for e in range(params.epochs):
         # train
         train_loss = 0
-        data_points = len(train['data'])
-        # data_points = 50
+        # data_points = len(train['data'])
+        data_points = 50
         grad_check = False
         num_grad = 0.0
         for b in range(0, data_points, params.bsz):
@@ -419,12 +422,12 @@ def train_2_layer_convnet(data, params):
                 dW, db, prev_dW, prev_db  = weight_updates[0]
                 print("Num Grad:{} Backward Grad:{}".format(num_grad, dW[0,0,0,1]))
             update_pass_2_layer_convnet(conv_net_layers, weight_updates, params)
-        sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'], train['labels'])
+        sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][0:data_points,:], train['labels'][0:data_points,:])
         loss = np.sum(loss_mat)
         train_loss = loss
         y_hat = np.argmax(sfmax, axis=1)
         # print(y_hat, trainy_num)
-        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
+        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, data_points)])/data_points
         print("Epoch:{} Train Loss:{} Error Rate:{}".format(e, train_loss, error_rate))
 
 def img_data_from_dict(data_dict, num_pts):

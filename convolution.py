@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import pickle
 
-from utils import im2col_indices, col2im_indices, toOneHot
+from utils import im2col_indices, col2im_indices, toOneHot, shuffle_ids
 
 class Activation(object):
 
@@ -75,11 +75,12 @@ class Conv2d(Layer):
         self.kernel_size = kernel_size
 
         # weights of each filter
-        # self.W = np.random.uniform(-2,2,size=(num_filters, self.channels, kernel_size, kernel_size))
-        self.W = xavier_init_relu(kernel_size, kernel_size, (num_filters, self.channels, kernel_size, kernel_size))
+        self.W = np.random.uniform(-2,2,size=(num_filters, self.channels, kernel_size, kernel_size))
+        # self.W = xavier_init_relu(kernel_size, kernel_size, (num_filters, self.channels, kernel_size, kernel_size))
         self.dW = np.zeros(self.W.shape)
 
-        self.b = np.random.uniform(-2,2, size=(num_filters, 1))
+        # self.b = np.random.uniform(-2,2, size=(num_filters, 1))
+        self.b = np.zeros((num_filters, 1))
         self.db = np.zeros((num_filters, 1))
 
         self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of rows
@@ -298,6 +299,9 @@ def train_convnet(data, params):
     for e in range(params.epochs):
         # train
         train_loss = 0
+        ids = shuffle_ids(train['data'])
+        train_data = train['data'][ids]
+        train_labels = train['labels'][ids]
         data_points = len(train['data'])
         # data_points = 50
         grad_check = False
@@ -308,16 +312,16 @@ def train_convnet(data, params):
                 # W = full_connected_layer.W
                 W = conv_layer.W[0,0]
                 W[0,2] -= eps
-                _, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
-                                               train['labels'][b:b + params.bsz, :])
+                _, loss_mat = forward_pass_convnet(conv_net_layers, train_data[b:b + params.bsz, :],
+                                                   train_labels[b:b + params.bsz, :])
                 loss1 = np.sum(loss_mat)
                 W[0,2] += 2*eps
-                _, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
-                                               train['labels'][b:b + params.bsz, :])
+                _, loss_mat = forward_pass_convnet(conv_net_layers, train_data[b:b + params.bsz, :],
+                                                   train_labels[b:b + params.bsz, :])
                 loss2 = np.sum(loss_mat)
                 W[0,2] -= eps
                 num_grad = (loss2 - loss1)/(2*eps)
-            sfmax, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
+            sfmax, loss_mat = forward_pass_convnet(conv_net_layers, train_data[b:b+params.bsz,:], train_labels[b:b+params.bsz,:])
             loss = np.sum(loss_mat)
             train_loss += loss
             weight_updates = backward_pass_convnet(conv_net_layers)

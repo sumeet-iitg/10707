@@ -330,7 +330,7 @@ def train_convnet(data, params):
         # print(y_hat, trainy_num)
         train_error = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
 
-        sfmax, val_loss = forward_pass_convnet(conv_net_layers, train['data'], train['labels'])
+        sfmax, val_loss = forward_pass_convnet(conv_net_layers, val['data'], val['labels'])
         y_hat = np.argmax(sfmax, axis=1)
         val_error = np.sum([y_hat[i] != val['numbers'][i] for i in range(0, len(val['numbers']))]) / len(val['numbers'])
 

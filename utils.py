@@ -1,7 +1,6 @@
 import numpy as np
 
 def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
-  # First figure out what the size of the output should be
   N, C, H, W = x_shape
   assert (H + 2 * padding - field_height) % stride == 0
   assert (W + 2 * padding - field_height) % stride == 0
@@ -22,8 +21,6 @@ def get_im2col_indices(x_shape, field_height, field_width, padding=1, stride=1):
 
 
 def im2col_indices(x, field_height, field_width, padding=1, stride=1):
-  """ An implementation of im2col based on some fancy indexing """
-  # Zero-pad the input
   p = padding
   # dim = [bsz, C, H, W]
   x_padded = np.pad(x, ((0, 0), (0, 0), (p, p), (p, p)), mode='constant')
@@ -39,7 +36,6 @@ def im2col_indices(x, field_height, field_width, padding=1, stride=1):
 
 def col2im_indices(cols, x_shape, field_height=3, field_width=3, padding=1,
                    stride=1):
-  """ An implementation of col2im based on fancy indexing and np.add.at """
   N, C, H, W = x_shape
   H_padded, W_padded = H + 2 * padding, W + 2 * padding
   x_padded = np.zeros((N, C, H_padded, W_padded), dtype=cols.dtype)
@@ -55,3 +51,8 @@ def col2im_indices(cols, x_shape, field_height=3, field_width=3, padding=1,
 def toOneHot(y, num_classes=19):
     y_hot = np.eye(num_classes)[y,:]
     return y_hot
+
+def shuffle_ids(data_points):
+    indices = np.arange(0,len(data_points))
+    np.random.shuffle(indices)
+    return indices

@@ -31,31 +31,28 @@ class Activation(object):
     def derivative(self):
         raise NotImplemented
 
-class ReLU(Activation):
-
-    """
-    ReLU non-linearity
-    """
-
-    def __init__(self):
-        super(ReLU, self).__init__()
-        self.relu= None
-
-    def forward(self, x):
-        self.relu = np.maximum(x, 0)
-        return self.relu
-
-    def derivative(self):
-        return 1.0*(self.relu > 0)
-
-
 def random_normal_weight_init(d0, d1):
     b = np.sqrt(6) / np.sqrt(d0 + d1)
     return np.random.uniform(-b, b, size=(d0, d1))
+    # return np.zeros((d0, d1))
 
+def xavier_init_relu(d0, d1, shape):
+    return np.random.randn(*shape)*np.sqrt(2/d0)
 
 def zeros_bias_init(d):
     return np.zeros(d)
+
+
+def log_softmax(x):
+
+    x_dash = np.transpose(x)
+    max_x = np.max(x_dash, axis=0)
+    denom_x = np.log(np.sum(np.exp(x_dash - max_x), axis=0))
+
+    log_p_dash = (x_dash - max_x) - denom_x
+    log_p = np.transpose(log_p_dash)
+
+    return log_p
 
 class Layer(object):
     def __init__(self):
@@ -79,18 +76,18 @@ class Conv2d(Layer):
         self.kernel_size = kernel_size
 
         # weights of each filter
-        self.W = np.tile(random_normal_weight_init(kernel_size, kernel_size), (num_filters, self.channels, 1, 1))
+        self.W = xavier_init_relu(kernel_size, kernel_size, (num_filters, self.channels, kernel_size, kernel_size))
         self.dW = np.zeros(self.W.shape)
 
-        self.b = np.zeros((num_filters,1))
-        self.db = np.zeros((num_filters,1))
+        self.b = 2*np.random.randn(num_filters, 1)
+        self.db = np.zeros((num_filters, 1))
 
         self.conv_out_ht  = (self.height_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of rows
         self.conv_out_wd = (self.width_in - kernel_size + 2 * self.padding)//self.stride + 1 # num of cols
 
     def forward(self, x):
         self.bsz = x.shape[0]
-        input_to_cols = im2col_indices(x, self.kernel_size, self.kernel_size) # [WF*HF*C, out_wd*bsz]
+        input_to_cols = im2col_indices(x, self.kernel_size, self.kernel_size, padding=self.padding) # [WF*HF*C, out_wd*bsz]
         self.input = input_to_cols
         conv_out = self.W.reshape(self.num_filters, -1).dot(input_to_cols) + self.b
 
@@ -109,6 +106,26 @@ class Conv2d(Layer):
 
         return dW, db
 
+class ReLU(Layer):
+
+    """
+    ReLU non-linearity
+    """
+
+    def __init__(self):
+        super(ReLU, self).__init__()
+        self.relu= None
+
+    def forward(self, x):
+        self.relu = np.maximum(x, 0)
+        self.input = x
+        return self.relu
+
+    def backward(self, dout):
+        dx = np.array(dout, copy=True)
+        dx[self.input <= 0] = 0
+        return dx
+
 class Pooling(Layer):
     def __init__(self, input_shape, pool_size=3):
         super(Pooling,self).__init__()
@@ -126,7 +143,7 @@ class Pooling(Layer):
         self.input = input_to_cols
         max_ids = np.argmax(input_to_cols, axis=0)
         self.max_ids = max_ids
-        pool_out = input_to_cols[:,max_ids].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
+        pool_out = input_to_cols[max_ids,np.arange(input_to_cols.shape[1])].reshape(self.num_filters, self.height_out, self.width_out, self.bsz)
         pool_out = pool_out.transpose(3, 0, 1, 2)
 
         return pool_out
@@ -135,7 +152,7 @@ class Pooling(Layer):
         dX_cols = np.zeros(self.input.shape) # bsz,
         # delta shape: bsz, num_filters, h_out, w_out --> num_filters, h_out, w_out, bsz
         delta_flat = delta.transpose(2, 3, 0, 1).ravel()
-        dX_cols[self.max_ids, :] = delta_flat
+        dX_cols[self.max_ids, np.arange(dX_cols.shape[1])] = delta_flat
         dX = col2im_indices(dX_cols, (self.bsz * self.num_filters, 1,  self.height_in, self.width_in),
                             self.pool_size, self.pool_size, padding=0, stride=self.stride)
 
@@ -148,7 +165,7 @@ class FullyConnectedLayer(Layer):
         self.output_size = output_size
         self.W = random_normal_weight_init(output_size, input_size)
         self.dW = np.zeros(self.W.shape)
-        self.b = np.zeros(output_size)
+        self.b = np.random.randn(output_size)
         self.db = np.zeros(self.b.shape)
 
     def forward(self, x):
@@ -206,25 +223,25 @@ class SoftmaxCrossEntropy(Criterion):
         bsz = x.shape[0]
         self.logits = x # bsz x label_size
         self.labels = y # bsz x label_size
-        exponents = np.exp(self.logits)
+        # exponents = np.exp(self.logits)
         # following for numerical stability
-        exponents = np.exp(self.logits - np.max(self.logits,axis=1, keepdims=True))
-        sum_exp = np.sum(exponents, axis=1, keepdims=True)
+            # exponents = np.exp(self.logits - np.max(self.logits, axis=1, keepdims=True))
+            # sum_exp = np.sum(exponents, axis=1, keepdims=True)
         # assuming batch is the 0th dimension
-        self.sm = exponents/(sum_exp) # bsz x label_size x 1 --> bsz x label_size
-
+            # self.sm = (exponents)/(sum_exp) # bsz x label_size x 1 --> bsz x label_size
+        self.sm = log_softmax(x)
         # cross entropy for entire batch matrix
         # element-wise multiply bsz x label_size & bsz x label_size
-        x_entropy_loss = -np.multiply(np.log(self.sm), y) # bsz x label_size
+        x_entropy_loss = -np.multiply(self.sm, y) # bsz x label_size
         return self.sm, x_entropy_loss
 
     def derivative(self):
 
         # self.sm might be useful here...
         # batch is the first dim here, i.e. these are batch of row vectors
-        return self.sm - self.labels
+        return np.exp(self.sm) - self.labels
 
-def forward_pass(conv_net_layers, input, labels):
+def forward_pass_convnet(conv_net_layers, input, labels):
     bsz = input.shape[0]
     conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
     conv_out = conv_layer.forward(input)
@@ -234,7 +251,7 @@ def forward_pass(conv_net_layers, input, labels):
     linear_out = fully_conn_layer.forward(pool_out.reshape(bsz, -1))
     return sfmax_layer.forward(linear_out, labels)
 
-def backward_pass(conv_net_layers):
+def backward_pass_convnet(conv_net_layers):
     conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
 
     prev_dW2 = fully_conn_layer.dW
@@ -247,13 +264,13 @@ def backward_pass(conv_net_layers):
     dW2, db2, dX = fully_conn_layer.backward(dLoss_final)
     dX = dX.reshape(-1, pooling.num_filters, pooling.height_out, pooling.width_out)
     dLoss_pool = pooling.backward(dX)
-    dLoss_relu = relu.derivative()
-    dLoss_conv = np.multiply(dLoss_pool, dLoss_relu)
-    dW1, db1 = conv_layer.backward(dLoss_conv)
+    dLoss_relu = relu.backward(dLoss_pool)
+    # dLoss_conv = np.multiply(dLoss_pool, dLoss_relu)
+    dW1, db1 = conv_layer.backward(dLoss_relu)
 
     return [(dW1, db1, prev_dW1, prev_db1), (dW2, db2, prev_dW2, prev_db2)]
 
-def update_pass(conv_net_layers, weight_updates, params):
+def update_pass_convnet(conv_net_layers, weight_updates, params):
     conv_layer, relu, pooling, fully_conn_layer, sfmax_layer = conv_net_layers
     dW1, db1, prev_dW1, prev_db1 = weight_updates[0]
     dW2, db2, prev_dW2, prev_db2 = weight_updates[1]
@@ -269,9 +286,9 @@ def train_convnet(data, params):
     input_shape = (3, 32, 32)
     output_classes = 10
     conv_layer = Conv2d(input_shape, num_filters=params.num_Filters, kernel_size=params.kernel_size, stride=1, padding=params.pad_size)
-    relu  = ReLU()
+    relu = ReLU()
     conv_out_shape = (params.num_Filters, conv_layer.conv_out_ht, conv_layer.conv_out_wd)
-    pool_layer = Pooling(conv_out_shape, params.pad_size)
+    pool_layer = Pooling(conv_out_shape, params.pool_size)
     fully_connected_input_size = params.num_Filters*pool_layer.height_out*pool_layer.width_out
     full_connected_layer = FullyConnectedLayer(fully_connected_input_size, output_classes)
     sfmax_layer = SoftmaxCrossEntropy()
@@ -280,13 +297,128 @@ def train_convnet(data, params):
     for e in range(params.epochs):
         # train
         train_loss = 0
-        for b in range(0, len(train), params.bsz):
-            sfmax, loss_mat = forward_pass(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
+        data_points = len(train['data'])
+        # data_points = 50
+        grad_check = False
+        num_grad = 0.0
+        for b in range(0, data_points, params.bsz):
+            if grad_check:
+                eps = 1e-10
+                # W = full_connected_layer.W
+                W = conv_layer.W[0,0]
+                W[0,2] -= eps
+                _, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
+                                               train['labels'][b:b + params.bsz, :])
+                loss1 = np.sum(loss_mat)
+                W[0,2] += 2*eps
+                _, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
+                                               train['labels'][b:b + params.bsz, :])
+                loss2 = np.sum(loss_mat)
+                W[0,2] -= eps
+                num_grad = (loss2 - loss1)/(2*eps)
+            sfmax, loss_mat = forward_pass_convnet(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
             loss = np.sum(loss_mat)
             train_loss += loss
-            weight_updates = backward_pass(conv_net_layers)
-            update_pass(conv_net_layers, weight_updates, params)
-        sfmax, loss_mat = forward_pass(conv_net_layers, train['data'], train['labels'])
+            weight_updates = backward_pass_convnet(conv_net_layers)
+            if grad_check:
+                dW, db, prev_dW, prev_db  = weight_updates[0]
+                print("Num Grad:{} Backward Grad:{}".format(num_grad, dW[0,0,0,2]))
+            update_pass_convnet(conv_net_layers, weight_updates, params)
+        sfmax, loss_mat = forward_pass_convnet(conv_net_layers, train['data'], train['labels'])
+        loss = np.sum(loss_mat)
+        train_loss = loss
+        y_hat = np.argmax(sfmax, axis=1)
+        # print(y_hat, trainy_num)
+        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(train['numbers'])
+        print("Epoch:{} Train Loss:{} Error Rate:{}".format(e, train_loss, error_rate))
+
+def forward_pass_2_layer_convnet(conv_net_layers, input, labels):
+    bsz = input.shape[0]
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+    conv_out = conv_layer.forward(input)
+    relu_out = relu.forward(conv_out)
+    pool_out = pooling.forward(relu_out)
+    # flattening the pooling output
+    linear_out = fully_conn_layer.forward(pool_out.reshape(bsz, -1))
+    relu_final = relu_final.forward(linear_out)
+    return sfmax_layer.forward(relu_final, labels)
+
+def backward_pass_2_layer_convnet(conv_net_layers):
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+
+    prev_dW2 = fully_conn_layer.dW
+    prev_db2 = fully_conn_layer.db
+    prev_dW1 = conv_layer.dW
+    prev_db1 = conv_layer.db
+
+    # dL/dO
+    dLoss_final = sfmax_layer.derivative()
+    dLoss_relu_final = relu_final.backward(dLoss_final)
+    dW2, db2, dX = fully_conn_layer.backward(dLoss_relu_final)
+    dX = dX.reshape(-1, pooling.num_filters, pooling.height_out, pooling.width_out)
+    dLoss_pool = pooling.backward(dX)
+    dLoss_relu = relu.backward(dLoss_pool)
+    # dLoss_conv = np.multiply(dLoss_pool, dLoss_relu)
+    dW1, db1 = conv_layer.backward(dLoss_relu)
+
+    return [(dW1, db1, prev_dW1, prev_db1), (dW2, db2, prev_dW2, prev_db2)]
+
+def update_pass_2_layer_convnet(conv_net_layers, weight_updates, params):
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+    dW1, db1, prev_dW1, prev_db1 = weight_updates[0]
+    dW2, db2, prev_dW2, prev_db2 = weight_updates[1]
+
+    conv_layer.W -= params.lr * (dW1 + args.momentum*prev_dW1 + 0.5*args.l2*conv_layer.W)
+    conv_layer.b -= params.lr * (db1 + args.momentum*prev_db1)
+
+    fully_conn_layer.W -= params.lr * (dW2 + args.momentum * prev_dW2 + 0.5 * args.l2 * fully_conn_layer.W)
+    fully_conn_layer.b -= params.lr * (db2 + args.momentum * prev_db2)
+
+def train_2_layer_convnet(data, params):
+    train, val, test = data
+    input_shape = (3, 32, 32)
+    output_classes = 10
+    conv_layer = Conv2d(input_shape, num_filters=params.num_Filters, kernel_size=params.kernel_size, stride=1, padding=params.pad_size)
+    relu = ReLU()
+    conv_out_shape = (params.num_Filters, conv_layer.conv_out_ht, conv_layer.conv_out_wd)
+    pool_layer = Pooling(conv_out_shape, params.pool_size)
+    fully_connected_input_size = params.num_Filters*pool_layer.height_out*pool_layer.width_out
+    full_connected_layer = FullyConnectedLayer(fully_connected_input_size, 100)
+    sfmax_layer = SoftmaxCrossEntropy()
+    relu_final = ReLU()
+    conv_net_layers = (conv_layer, relu, pool_layer, full_connected_layer, relu_final, sfmax_layer)
+
+    for e in range(params.epochs):
+        # train
+        train_loss = 0
+        data_points = len(train['data'])
+        # data_points = 50
+        grad_check = False
+        num_grad = 0.0
+        for b in range(0, data_points, params.bsz):
+            if grad_check:
+                eps = 1e-10
+                # W = full_connected_layer.W
+                W = conv_layer.W[0,0]
+                W[0,1] -= eps
+                _, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
+                                               train['labels'][b:b + params.bsz, :])
+                loss1 = np.sum(loss_mat)
+                W[0,1] += 2*eps
+                _, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
+                                               train['labels'][b:b + params.bsz, :])
+                loss2 = np.sum(loss_mat)
+                W[0,1] -= eps
+                num_grad = (loss2 - loss1)/(2*eps)
+            sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
+            loss = np.sum(loss_mat)
+            train_loss += loss
+            weight_updates = backward_pass_2_layer_convnet(conv_net_layers)
+            if grad_check:
+                dW, db, prev_dW, prev_db  = weight_updates[0]
+                print("Num Grad:{} Backward Grad:{}".format(num_grad, dW[0,0,0,1]))
+            update_pass_2_layer_convnet(conv_net_layers, weight_updates, params)
+        sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'], train['labels'])
         loss = np.sum(loss_mat)
         train_loss = loss
         y_hat = np.argmax(sfmax, axis=1)
@@ -332,17 +464,17 @@ if __name__ == '__main__':
     file_path = "./sampledCIFAR10/sampledCIFAR10"
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-bsz', type=float, help='Batch Size', dest='bsz', default=32)
+    parser.add_argument('-bsz', type=float, help='Batch Size', dest='bsz', default=64)
     parser.add_argument('-epochs', type=int, help='Num Epochs', dest='epochs', default=150)
     parser.add_argument('-l', nargs='+', type=int, help='Hidden layer sizes', dest='hidden', default=[100])
-    parser.add_argument('-lr', type=float, help='Learning Rate', dest='lr', default=0.1)
-    parser.add_argument('-l2', type=float, help='Regularization', dest='l2', default=0.001)
-    parser.add_argument('-m', type=float, help='Momentum', dest='momentum', default=0.0)
+    parser.add_argument('-lr', type=float, help='Learning Rate', dest='lr', default=0.01)
+    parser.add_argument('-l2', type=float, help='Regularization', dest='l2', default=0.0)
+    parser.add_argument('-m', type=float, help='Momentum', dest='momentum', default=0.9)
     parser.add_argument('-d', type=float, help='Dropout', dest='dropout', default=0.0)
-    parser.add_argument('-k', type=float, help='Kernel Size', dest='kernel_size', default=3)
-    parser.add_argument('-nF', type=float, help='Num Filters', dest='num_Filters', default=3)
-    parser.add_argument('-pd', type=float, help='Padding Size', dest='pad_size', default=1)
-    parser.add_argument('-pool', type=float, help='Pool Size', dest='pool_size', default=2)
+    parser.add_argument('-k', type=int, help='Kernel Size', dest='kernel_size', default=5)
+    parser.add_argument('-nF', type=int, help='Num Filters', dest='num_Filters', default=1)
+    parser.add_argument('-pd', type=int, help='Padding Size', dest='pad_size', default=2)
+    parser.add_argument('-pool', type=int, help='Pool Size', dest='pool_size', default=2)
     parser.add_argument('--loss_plot', dest='loss_plot', default=False, action='store_true')
     parser.add_argument('--lr_plot', dest='lr_plot', default=False, action='store_true')
     parser.add_argument('--m_plot', dest='m_plot', default=False, action='store_true')

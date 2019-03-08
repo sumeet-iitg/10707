@@ -340,7 +340,7 @@ def train_convnet(data, params):
 
         sfmax, test_loss = forward_pass_convnet(conv_net_layers, test['data'], test['labels'])
         y_hat = np.argmax(sfmax, axis=1)
-        test_error = np.sum([y_hat[i] != val['numbers'][i] for i in range(0, len(test['numbers']))]) / len(test['numbers'])
+        test_error = np.sum([y_hat[i] != test['numbers'][i] for i in range(0, len(test['numbers']))]) / len(test['numbers'])
 
         print("Epoch:{} Train Loss:{} Train Error:{} Val Error:{} Test Err: {}".format(e, train_loss, train_error, val_error, test_error))
 
@@ -440,7 +440,7 @@ def train_2_layer_convnet(data, params):
 
         sfmax, test_loss = forward_pass_2_layer_convnet(conv_net_layers, test['data'], test['labels'])
         y_hat = np.argmax(sfmax, axis=1)
-        test_error = np.sum([y_hat[i] != val['numbers'][i] for i in range(0, len(test['numbers']))]) / len(test['numbers'])
+        test_error = np.sum([y_hat[i] != test['numbers'][i] for i in range(0, len(test['numbers']))]) / len(test['numbers'])
 
         print("Epoch:{} Train Loss:{} Train Error:{} Val Error:{} Test Err: {}".format(e, train_loss, train_error, val_error, test_error))
 

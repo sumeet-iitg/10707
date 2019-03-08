@@ -342,18 +342,21 @@ def train_convnet(data, params):
 
 def forward_pass_2_layer_convnet(conv_net_layers, input, labels):
     bsz = input.shape[0]
-    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, final_fcc_layer, sfmax_layer = conv_net_layers
     conv_out = conv_layer.forward(input)
     relu_out = relu.forward(conv_out)
     pool_out = pooling.forward(relu_out)
     # flattening the pooling output
-    linear_out = fully_conn_layer.forward(pool_out.reshape(bsz, -1))
-    relu_final = relu_final.forward(linear_out)
-    return sfmax_layer.forward(relu_final, labels)
+    fcc_out = fully_conn_layer.forward(pool_out.reshape(bsz, -1))
+    relu_final = relu_final.forward(fcc_out)
+    linear_out = final_fcc_layer.forward(relu_final)
+    return sfmax_layer.forward(linear_out, labels)
 
 def backward_pass_2_layer_convnet(conv_net_layers):
-    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, final_fcc_layer, sfmax_layer = conv_net_layers
 
+    prev_dW3 = final_fcc_layer.dW
+    prev_db3 = final_fcc_layer.db
     prev_dW2 = fully_conn_layer.dW
     prev_db2 = fully_conn_layer.db
     prev_dW1 = conv_layer.dW
@@ -361,7 +364,8 @@ def backward_pass_2_layer_convnet(conv_net_layers):
 
     # dL/dO
     dLoss_final = sfmax_layer.derivative()
-    dLoss_relu_final = relu_final.backward(dLoss_final)
+    dW3, db3, dX = final_fcc_layer.backward(dLoss_final)
+    dLoss_relu_final = relu_final.backward(dX)
     dW2, db2, dX = fully_conn_layer.backward(dLoss_relu_final)
     dX = dX.reshape(-1, pooling.num_filters, pooling.height_out, pooling.width_out)
     dLoss_pool = pooling.backward(dX)
@@ -369,18 +373,22 @@ def backward_pass_2_layer_convnet(conv_net_layers):
     # dLoss_conv = np.multiply(dLoss_pool, dLoss_relu)
     dW1, db1 = conv_layer.backward(dLoss_relu)
 
-    return [(dW1, db1, prev_dW1, prev_db1), (dW2, db2, prev_dW2, prev_db2)]
+    return [(dW1, db1, prev_dW1, prev_db1), (dW2, db2, prev_dW2, prev_db2), (dW3, db3, prev_dW3, prev_db3)]
 
 def update_pass_2_layer_convnet(conv_net_layers, weight_updates, params):
-    conv_layer, relu, pooling, fully_conn_layer, relu_final, sfmax_layer = conv_net_layers
+    conv_layer, relu, pooling, fully_conn_layer, relu_final, final_fcc_layer, sfmax_layer = conv_net_layers
     dW1, db1, prev_dW1, prev_db1 = weight_updates[0]
     dW2, db2, prev_dW2, prev_db2 = weight_updates[1]
+    dW3, db3, prev_dW3, prev_db3 = weight_updates[2]
 
     conv_layer.W -= params.lr * (dW1 + args.momentum*prev_dW1 + 0.5*args.l2*conv_layer.W)
     conv_layer.b -= params.lr * (db1 + args.momentum*prev_db1)
 
     fully_conn_layer.W -= params.lr * (dW2 + args.momentum * prev_dW2 + 0.5 * args.l2 * fully_conn_layer.W)
     fully_conn_layer.b -= params.lr * (db2 + args.momentum * prev_db2)
+
+    final_fcc_layer.W -= params.lr * (dW3 + args.momentum * prev_dW3 + 0.5 * args.l2 * final_fcc_layer.W)
+    final_fcc_layer.b -= params.lr * (db3 + args.momentum * prev_db3)
 
 def train_2_layer_convnet(data, params):
     train, val, test = data
@@ -392,47 +400,40 @@ def train_2_layer_convnet(data, params):
     pool_layer = Pooling(conv_out_shape, params.pool_size)
     fully_connected_input_size = params.num_Filters*pool_layer.height_out*pool_layer.width_out
     full_connected_layer = FullyConnectedLayer(fully_connected_input_size, 100)
-    sfmax_layer = SoftmaxCrossEntropy()
     relu_final = ReLU()
-    conv_net_layers = (conv_layer, relu, pool_layer, full_connected_layer, relu_final, sfmax_layer)
+    final_fcc_layer = FullyConnectedLayer(100, output_classes)
+    sfmax_layer = SoftmaxCrossEntropy()
+
+    conv_net_layers = (conv_layer, relu, pool_layer, full_connected_layer, relu_final, final_fcc_layer, sfmax_layer)
 
     for e in range(params.epochs):
         # train
         train_loss = 0
-        # data_points = len(train['data'])
-        data_points = 50
-        grad_check = False
-        num_grad = 0.0
+        ids = shuffle_ids(train['data'])
+        train_data = train['data'][ids]
+        train_labels = train['labels'][ids]
+        data_points = len(train['data'])
+        # data_points = 50
+
         for b in range(0, data_points, params.bsz):
-            if grad_check:
-                eps = 1e-10
-                # W = full_connected_layer.W
-                W = conv_layer.W[0,0]
-                W[0,1] -= eps
-                _, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
-                                               train['labels'][b:b + params.bsz, :])
-                loss1 = np.sum(loss_mat)
-                W[0,1] += 2*eps
-                _, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b + params.bsz, :],
-                                               train['labels'][b:b + params.bsz, :])
-                loss2 = np.sum(loss_mat)
-                W[0,1] -= eps
-                num_grad = (loss2 - loss1)/(2*eps)
-            sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][b:b+params.bsz,:], train['labels'][b:b+params.bsz,:])
+            sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train_data[b:b+params.bsz,:], train_labels[b:b+params.bsz,:])
             loss = np.sum(loss_mat)
             train_loss += loss
             weight_updates = backward_pass_2_layer_convnet(conv_net_layers)
-            if grad_check:
-                dW, db, prev_dW, prev_db  = weight_updates[0]
-                print("Num Grad:{} Backward Grad:{}".format(num_grad, dW[0,0,0,1]))
             update_pass_2_layer_convnet(conv_net_layers, weight_updates, params)
         sfmax, loss_mat = forward_pass_2_layer_convnet(conv_net_layers, train['data'][0:data_points,:], train['labels'][0:data_points,:])
         loss = np.sum(loss_mat)
         train_loss = loss
         y_hat = np.argmax(sfmax, axis=1)
         # print(y_hat, trainy_num)
-        error_rate = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, data_points)])/data_points
-        print("Epoch:{} Train Loss:{} Error Rate:{}".format(e, train_loss, error_rate))
+        train_error = np.sum([y_hat[i] != train['numbers'][i] for i in range(0, len(train['numbers']))]) / len(
+            train['numbers'])
+
+        sfmax, val_loss = forward_pass_2_layer_convnet(conv_net_layers, val['data'], val['labels'])
+        y_hat = np.argmax(sfmax, axis=1)
+        val_error = np.sum([y_hat[i] != val['numbers'][i] for i in range(0, len(val['numbers']))]) / len(val['numbers'])
+        print("Epoch:{} Train Loss:{} Train Error:{} Val Error:{}".format(e, train_loss, train_error, val_error))
+
 
 def img_data_from_dict(data_dict, num_pts):
     # each row in this image array is an array of dim 3 x 32 x 32
@@ -488,6 +489,7 @@ if __name__ == '__main__':
     parser.add_argument('--m_plot', dest='m_plot', default=False, action='store_true')
     parser.add_argument('--hid_plot', dest='hid_plot', default=False, action='store_true')
     parser.add_argument('--p_load', dest='p_load', default=False, action='store_true')
+    parser.add_argument('--lenet_load', dest='lenet_load', default=False, action='store_true')
     # parser.add_argument('--save_model', dest='save', default=False, action='store_true')
 
     args = parser.parse_args()
@@ -505,7 +507,10 @@ if __name__ == '__main__':
     val_size = valid['data'].shape[0]
     test_size = test['data'].shape[0]
     print("sizes {} {} {}".format(train_size, val_size, test_size))
-    train_convnet((train, valid, test), args)
+    if args.lenet_load:
+        train_2_layer_convnet((train, valid, test), args)
+    else:
+        train_convnet((train, valid, test), args)
     # output_size = 19
     # hiddens = args.hidden
     # activations = [Sigmoid() for _ in hiddens]

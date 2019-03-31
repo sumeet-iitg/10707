@@ -2,7 +2,7 @@
 import torch
 import numpy as np
 from typing import List, Union
-from torch.nn.functional import softmax
+from torch.nn.functional import softmax, log_softmax
 
 SOS_token = 0
 EOS_token = 1
@@ -36,9 +36,9 @@ class GRU(object):
         :return: hidden, a tensor of shape [hidden_dim], denoted h_j in the assignment
         """
 
-        reset_gate = torch.sigmoid(torch.mm(self.Wr, input) + torch.mm(self.Ur,last_hidden))
-        forget_gate = torch.sigmoid(torch.mm(self.Wz, input) + torch.mm(self.Uz,last_hidden))
-        candidate_hid = torch.tanh(torch.mm(self.W, input) + torch.mm(self.U, reset_gate* last_hidden))
+        reset_gate = torch.sigmoid(torch.mv(self.Wr, input) + torch.mv(self.Ur,last_hidden))
+        forget_gate = torch.sigmoid(torch.mv(self.Wz, input) + torch.mv(self.Uz,last_hidden))
+        candidate_hid = torch.tanh(torch.mv(self.W, input) + torch.mv(self.U, reset_gate*last_hidden))
         return (1 - forget_gate)*candidate_hid + forget_gate*last_hidden
 
 
@@ -89,7 +89,8 @@ class OutputLayer(object):
                       [WITH ATTENTION]    a tensor of shape [2*hidden_size]
         :return: probs: a tensor of shape [target_vocab_size]
         """
-        return NotImplementedError()
+        linear_transform = torch.mv(self.weight, input) + self.bias
+        return log_softmax(linear_transform)
 
 
 class Attention(object):
@@ -162,4 +163,14 @@ def encode_all(source_sentence: List[int], model: Union[Seq2SeqModel, Seq2SeqAtt
     :return: tensor `source_hiddens` of shape [source_sentence_length, L, hidden_dim], denoted H^{enc}_1 ... H^{enc}_S
              in the assignment
     """
-    return NotImplementedError()
+    # input of shape seq_len x embedding_size
+    input_embeddings = model.source_embedding_matrix[source_sentence]
+    stack_size = len(model.encoder.grus)
+    # stack x hid_dim
+    last_hidden = torch.zeros((stack_size, model.hidden_dim), dtype=torch.float64)
+    hiddens = torch.zeros((len(source_sentence), stack_size, model.hidden_dim),dtype=torch.float64)
+    for pos in range(input_embeddings.shape[0]):
+        last_hidden = model.encoder.forward(input_embeddings[pos], last_hidden)
+        hiddens[pos] = last_hidden
+
+    return hiddens

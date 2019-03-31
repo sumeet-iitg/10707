@@ -23,7 +23,9 @@ def decode(prev_hidden: torch.tensor, input: int, model: Seq2SeqModel) -> (torch
     :return: (1) a tensor `probs` of shape [target_vocab_size], denoted p(y_t | x_1 ... x_S, y_1 .. y_{t-1})
              (2) a tensor `hidden` of shape [L, hidden_dim], denoted H^{dec}_t in the assignment
     """
-    raise NotImplementedError()
+    hidden_out = model.decoder_gru.forward(input, prev_hidden)
+    log_probs = model.output_layer(hidden_out[-1])
+    return log_probs, hidden_out
 
 def log_likelihood(source_sentence: List[int], target_sentence: List[int], model: Seq2SeqModel) -> torch.Tensor:
     """ Compute the log-likelihood for a (source_sentence, target_sentence) pair.
@@ -32,7 +34,23 @@ def log_likelihood(source_sentence: List[int], target_sentence: List[int], model
     :param target_sentence: the target sentence, as a list of words
     :return: conditional log-likelihood of the (source_sentence, target_sentence) pair
     """
-    raise NotImplementedError()
+    encoder_hiddens = encode_all(source_sentence, model)
+    # input of shape seq_len x embedding_size
+    target_sentence = [SOS_token] + target_sentence
+    target_embeddings = model.target_embedding_matrix[target_sentence]
+    target_vocab_size = model.target_embedding_matrix.shape[0]
+    stack_size = len(model.encoder.grus)
+    # stack x hid_dim
+    prev_hidden = encoder_hiddens[-1]
+    hiddens = torch.zeros((len(target_sentence), stack_size, model.hidden_dim), dtype=torch.float64)
+    target_probs = torch.zeros(len(target_sentence), dtype=torch.float64)
+
+    for pos in range(target_embeddings.shape[0]):
+        log_probs, prev_hidden = decode(prev_hidden, target_embeddings[pos], model)
+        hiddens[pos] = prev_hidden
+        target_probs[pos] = log_probs[target_sentence[pos]] # get log prob of the target word
+
+    return torch.sum(target_probs)
 
 
 def translate_greedy_search(source_sentence: List[int], model: Seq2SeqModel, max_length=10) -> List[int]:
@@ -69,8 +87,8 @@ def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqMode
     total_loss = 0
     start_time = time()
     optimizer = optim.Adam(model_params.values(), lr=learning_rate)
+    optimizer.zero_grad()
     for i, (source_sentence, target_sentence) in enumerate(sentences):
-        optimizer.zero_grad()
         theloss = -log_likelihood(source_sentence, target_sentence, model)
         total_loss += theloss
         theloss.backward()

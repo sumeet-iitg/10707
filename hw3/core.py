@@ -62,11 +62,12 @@ class StackedGRU(object):
         """
 
         gru_input = input
-        gru_stack_hid_out = torch.tensor(np.zeros(shape=last_hidden.shape))
+        gru_stack_hiddens = []
         for i in range(len(self.grus)):
-            gru_stack_hidden = last_hidden[i]
-            gru_stack_hid_out[i] = self.grus[i].forward(gru_input, gru_stack_hidden)
-        return gru_stack_hid_out
+            gru_input = self.grus[i].forward(gru_input, last_hidden[i])
+            gru_stack_hiddens.append(gru_input)
+
+        return torch.stack(gru_stack_hiddens)
 
 
 class OutputLayer(object):
@@ -167,10 +168,10 @@ def encode_all(source_sentence: List[int], model: Union[Seq2SeqModel, Seq2SeqAtt
     input_embeddings = model.source_embedding_matrix[source_sentence]
     stack_size = len(model.encoder.grus)
     # stack x hid_dim
-    last_hidden = torch.zeros((stack_size, model.hidden_dim), dtype=torch.float64)
-    hiddens = torch.zeros((len(source_sentence), stack_size, model.hidden_dim),dtype=torch.float64)
+    last_hidden = torch.zeros((stack_size, model.hidden_dim), dtype=torch.float)
+    hiddens = []
     for pos in range(input_embeddings.shape[0]):
         last_hidden = model.encoder.forward(input_embeddings[pos], last_hidden)
-        hiddens[pos] = last_hidden
+        hiddens.append(last_hidden)
 
-    return hiddens
+    return torch.stack(hiddens)

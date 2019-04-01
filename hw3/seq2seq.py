@@ -24,7 +24,7 @@ def decode(prev_hidden: torch.tensor, input: int, model: Seq2SeqModel) -> (torch
              (2) a tensor `hidden` of shape [L, hidden_dim], denoted H^{dec}_t in the assignment
     """
     hidden_out = model.decoder_gru.forward(input, prev_hidden)
-    log_probs = model.output_layer(hidden_out[-1])
+    log_probs = model.output_layer.forward(hidden_out[-1])
     return log_probs, hidden_out
 
 def log_likelihood(source_sentence: List[int], target_sentence: List[int], model: Seq2SeqModel) -> torch.Tensor:
@@ -42,15 +42,13 @@ def log_likelihood(source_sentence: List[int], target_sentence: List[int], model
     stack_size = len(model.encoder.grus)
     # stack x hid_dim
     prev_hidden = encoder_hiddens[-1]
-    hiddens = torch.zeros((len(target_sentence), stack_size, model.hidden_dim), dtype=torch.float64)
-    target_probs = torch.zeros(len(target_sentence), dtype=torch.float64)
+    target_log_probs = []
 
     for pos in range(target_embeddings.shape[0]):
         log_probs, prev_hidden = decode(prev_hidden, target_embeddings[pos], model)
-        hiddens[pos] = prev_hidden
-        target_probs[pos] = log_probs[target_sentence[pos]] # get log prob of the target word
+        target_log_probs.append(log_probs[target_sentence[pos]])
 
-    return torch.sum(target_probs)
+    return torch.sum(torch.stack(target_log_probs))
 
 
 def translate_greedy_search(source_sentence: List[int], model: Seq2SeqModel, max_length=10) -> List[int]:
@@ -63,7 +61,7 @@ def translate_greedy_search(source_sentence: List[int], model: Seq2SeqModel, max
 
     raise NotImplementedError()
 
-
+@torch.no_grad()
 def perplexity(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqModel):
     """ Compute the perplexity of an entire dataset under a seq2seq model.  Refer to the write-up for the
     definition of perplexity.
@@ -72,9 +70,16 @@ def perplexity(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqModel
     :param model: seq2seq model
     :return: perplexity of the dataset
     """
-    raise NotImplementedError()
 
+    LL_Total = torch.tensor(0,dtype=torch.float)
+    total_words = torch.tensor(0,dtype=torch.float)
+    for i, (source_sentence, target_sentence) in enumerate(sentences):
+        LL_Total += log_likelihood(source_sentence, target_sentence, model)
+        total_words += len(target_sentence)
 
+    return torch.exp(-LL_Total/total_words)
+
+@torch.enable_grad()
 def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqModel,
                 epoch: int, print_every: int = 100, learning_rate: float = 0.0001, gradient_clip=5):
     """ Train the model for an epoch.
@@ -87,8 +92,9 @@ def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqMode
     total_loss = 0
     start_time = time()
     optimizer = optim.Adam(model_params.values(), lr=learning_rate)
-    optimizer.zero_grad()
+
     for i, (source_sentence, target_sentence) in enumerate(sentences):
+        optimizer.zero_grad()
         theloss = -log_likelihood(source_sentence, target_sentence, model)
         total_loss += theloss
         theloss.backward()
@@ -132,8 +138,10 @@ if __name__ == "__main__":
                         choices=["train", "finetune", "train_perplexity", "test_perplexity",
                                  "print_train_translations", "print_test_translations"])
     parser.add_argument("--load_model", type=str,
-                        help="path to saved model on disk.  if this arg is unset, the weights are initialized randomly")
-    parser.add_argument("--save_model_prefix", type=str, help="prefix to save model with, if you're training")
+                        help="path to saved model on disk.  if this arg is unset, the weights are initialized randomly",
+                        default="pretrained/seq2seq.pth")
+    parser.add_argument("--save_model_prefix", type=str, help="prefix to save model with, if you're training",
+                        default="trained/train_seq2seq")
     args = parser.parse_args()
 
     # load train/test data, and source/target vocabularies

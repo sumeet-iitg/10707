@@ -38,28 +38,36 @@ def log_likelihood(source_sentence: List[int], target_sentence: List[int], model
     # input of shape seq_len x embedding_size
     target_sentence = [SOS_token] + target_sentence
     target_embeddings = model.target_embedding_matrix[target_sentence]
-    target_vocab_size = model.target_embedding_matrix.shape[0]
-    stack_size = len(model.encoder.grus)
     # stack x hid_dim
     prev_hidden = encoder_hiddens[-1]
     target_log_probs = []
 
-    for pos in range(target_embeddings.shape[0]):
+    for pos in range(target_embeddings.shape[0] - 1):
         log_probs, prev_hidden = decode(prev_hidden, target_embeddings[pos], model)
-        target_log_probs.append(log_probs[target_sentence[pos]])
+        target_log_probs.append(torch.log(log_probs[target_sentence[pos+1]]))
 
     return torch.sum(torch.stack(target_log_probs))
 
-
+@torch.no_grad()
 def translate_greedy_search(source_sentence: List[int], model: Seq2SeqModel, max_length=10) -> List[int]:
     """ Translate a source sentence using greedy decoding.
 
     :param source_sentence: the source sentence, as a list of words
     :param max_length: the maximum length that the target sentence could be
-    :return: the translated sentence as a list of words
+    :return: the translated sentence as a list of word ints
     """
 
-    raise NotImplementedError()
+    encoder_hiddens = encode_all(source_sentence, model)
+    decode_in = model.target_embedding_matrix[SOS_token]
+    prev_hidden = encoder_hiddens[-1]
+    translate_out = []
+    for i in range(max_length):
+        log_probs, prev_hidden = decode(prev_hidden, decode_in, model)
+        tgt_out = int(torch.argmax(log_probs).item())
+        decode_in = model.target_embedding_matrix[tgt_out]
+        translate_out.append(tgt_out)
+
+    return translate_out
 
 @torch.no_grad()
 def perplexity(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqModel):

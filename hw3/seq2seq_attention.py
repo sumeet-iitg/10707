@@ -30,7 +30,12 @@ def decode(prev_hidden: torch.tensor, source_hiddens: torch.tensor, prev_context
              (4) a tensor `attention_weights` of shape [source_sentence_length], denoted \alpha in the assignment
     """
 
-    raise NotImplementedError()
+    decode_in = torch.stack(model.target_embedding_matrix[input], prev_context)
+    hidden_out = model.decoder_gru.forward(decode_in, prev_hidden)
+    attention_weights = model.attention.forward(source_hiddens, hidden_out[-1])
+    context = torch.mul(attention_weights, source_hiddens)
+    log_probs = model.output_layer.forward(torch.stack(hidden_out[-1],context))
+    return log_probs, hidden_out, context, attention_weights
 
 
 def log_likelihood(source_sentence: List[int],

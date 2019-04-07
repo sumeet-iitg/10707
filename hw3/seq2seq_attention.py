@@ -6,6 +6,7 @@ from util import initialize_seq2seq_attention_params, build_seq2seq_attention_mo
 from time import time
 from torch import optim
 from core import Seq2SeqAttentionModel, encode_all
+import math
 from math import exp
 from core import SOS_token, EOS_token
 
@@ -116,7 +117,55 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
     :return: (1) the target sentence (translation),
              (2) sum of conditional log-likelihood of the translation, i.e., log p(target sentence|source sentence)
     """
-    raise NotImplementedError("this is extra credit")
+    encoder_hiddens = encode_all(source_sentence, model)
+    beam_elems = []
+    # stack x hid_dim
+    prev_hidden = encoder_hiddens[-1]
+    prev_context = torch.zeros(model.hidden_dim)
+
+    beam_elems= [([SOS_token], float(0), prev_hidden, prev_context)]
+    candidate_translations = []
+    available_width = beam_width
+    for i in range(max_length):
+        if available_width >0:
+            candidate_beam_elems = []
+            for b in range(len(beam_elems)):
+                prev_predict, prev_log_prob, prev_hidden, prev_context = beam_elems[b]
+                log_probs, prev_hidden, prev_context, _ = decode(prev_hidden, encoder_hiddens, prev_context,
+                                                                                 prev_predict[-1], model)
+                top_log_probs, top_preds = torch.topk(log_probs,available_width)
+                for k in range(len(top_log_probs)):
+                    curr_log_prob = prev_log_prob + top_log_probs[k].item()
+                    curr_pred_list = prev_predict + top_preds[k].item()
+                    candidate = (curr_pred_list, curr_log_prob, prev_hidden, prev_context)
+                    candidate_pos = -1
+                    for pos in range(len(candidate_beam_elems)):
+                        if curr_log_prob > candidate_beam_elems[pos][1]:
+                            candidate_pos = pos
+                    if not candidate_pos == -1:
+                        candidate_beam_elems.insert(candidate_pos+1, candidate)
+                    elif len(candidate_beam_elems) < available_width:
+                        candidate_beam_elems.append(candidate)
+                    if len(candidate_beam_elems) > available_width:
+                        candidate_beam_elems.pop()
+
+            beam_elems = []
+            for candidate in candidate_beam_elems:
+                if candidate[0][-1] == EOS_token:
+                    candidate_translations.append(candidate)
+                    available_width -= 1
+                else:
+                    beam_elems.append(candidate)
+
+    max_prob = -math.inf
+    best_elem = -1
+    for pos in range(len(candidate_translations)):
+        norm_prob = candidate_translations[pos][1]/len(candidate_translations[pos][0])
+        if norm_prob > max_prob:
+            max_prob = norm_prob
+            best_elem = pos
+
+    return candidate_translations[best_elem][0]
 
 @torch.enable_grad()
 def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqAttentionModel,

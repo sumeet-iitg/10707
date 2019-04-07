@@ -30,11 +30,12 @@ def decode(prev_hidden: torch.tensor, source_hiddens: torch.tensor, prev_context
              (4) a tensor `attention_weights` of shape [source_sentence_length], denoted \alpha in the assignment
     """
 
-    decode_in = torch.stack(model.target_embedding_matrix[input], prev_context)
+    decode_in = torch.cat((model.target_embedding_matrix[input], prev_context))
     hidden_out = model.decoder_gru.forward(decode_in, prev_hidden)
-    attention_weights = model.attention.forward(source_hiddens, hidden_out[-1])
-    context = torch.mul(attention_weights, source_hiddens)
-    log_probs = model.output_layer.forward(torch.stack(hidden_out[-1],context))
+    # passing the top layer of encoder and decoder hidden dims
+    attention_weights = model.attention.forward(source_hiddens[:,-1,:], hidden_out[-1])
+    context = torch.mm(attention_weights.unsqueeze(dim=0),source_hiddens[:,-1,:]).squeeze()
+    log_probs = model.output_layer.forward(torch.cat((hidden_out[-1].squeeze(),context)))
     return log_probs, hidden_out, context, attention_weights
 
 
@@ -47,10 +48,22 @@ def log_likelihood(source_sentence: List[int],
     :param target_sentence: the target sentence, as a list of words
     :return: log-likelihood of the (source_sentence, target_sentence) pair
     """
-    raise NotImplementedError()
+    encoder_hiddens = encode_all(source_sentence, model)
+    # input of shape seq_len x embedding_size
+    target_sentence = [SOS_token] + target_sentence
+    # stack x hid_dim
+    prev_hidden = encoder_hiddens[-1]
+    prev_context = torch.zeros(model.hidden_dim)
+    target_log_probs = []
+
+    for pos in range(len(target_sentence) - 1):
+        log_probs, prev_hidden, prev_context,_ = decode(prev_hidden, encoder_hiddens, prev_context, target_sentence[pos], model)
+        target_log_probs.append(torch.log(log_probs[target_sentence[pos + 1]]))
+
+    return torch.sum(torch.stack(target_log_probs))
 
 
-
+@torch.no_grad()
 def perplexity(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqAttentionModel) -> float:
     """ Compute the perplexity of an entire dataset under a seq2seq model.  Refer to the write-up for the
     definition of perplexity.
@@ -59,10 +72,15 @@ def perplexity(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqAtten
     :param model: seq2seq attention model
     :return: perplexity of the translation
     """
-    raise NotImplementedError()
+    LL_Total = torch.tensor(0, dtype=torch.float)
+    total_words = torch.tensor(0, dtype=torch.float)
+    for i, (source_sentence, target_sentence) in enumerate(sentences):
+        LL_Total += log_likelihood(source_sentence, target_sentence, model)
+        total_words += len(target_sentence)
 
+    return torch.exp(-LL_Total / total_words)
 
-
+@torch.no_grad()
 def translate_greedy_search(source_sentence: List[int],
                             model: Seq2SeqAttentionModel, max_length=10) -> (List[int], torch.tensor):
     """ Translate a source sentence using greedy decoding.
@@ -73,7 +91,20 @@ def translate_greedy_search(source_sentence: List[int],
              (2) the attention matrix, a tensor of shape [target_sentence_length, source_sentence_length]
 
     """
-    raise NotImplementedError()
+    encoder_hiddens = encode_all(source_sentence, model)
+    # stack x hid_dim
+    prev_hidden = encoder_hiddens[-1]
+    prev_context = torch.zeros(model.hidden_dim)
+    decode_in = SOS_token
+    translate_out = []
+    attention_wt_list = []
+    for i in range(max_length):
+        log_probs, prev_hidden, prev_context, attention_weights = decode(prev_hidden, encoder_hiddens, prev_context, decode_in, model)
+        decode_in = int(torch.argmax(log_probs).item())
+        translate_out.append(decode_in)
+        attention_wt_list.append(attention_weights)
+
+    return translate_out, torch.stack(attention_wt_list)
 
 
 def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionModel,
@@ -87,7 +118,7 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
     """
     raise NotImplementedError("this is extra credit")
 
-
+@torch.enable_grad()
 def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqAttentionModel,
                 epoch: int, print_every: int = 100, learning_rate: float = 0.0001, gradient_clip=5):
     """ Train the model for an epoch.

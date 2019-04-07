@@ -56,7 +56,7 @@ class TestLogLikelihood(unittest.TestCase):
     def test(self):
         data = torch.load("test_data/test_log_likelihood.pth")
         ll = log_likelihood(data["source_sentence"], data["target_sentence"], seq2seq_model)
-        self.assertAlmostEqual(ll.item(), data["log_likelihood"].item())
+        self.assertAlmostEqual(ll.item(), data["log_likelihood"].item(), places=4)
 
 
 class TestTranslate(unittest.TestCase):
@@ -110,7 +110,10 @@ class TestTranslateBeamSearch(unittest.TestCase):
         target_sentence, sum_log_likelihood = translate_beam_search(data["source_sentence"], seq2seq_attention_model,
                                                                     beam_width=4, max_length=10)
         self.assertEqual(target_sentence, data["target_sentence"])
-        assert_allclose(sum_log_likelihood.detach().numpy(), data["sum_log_likelihood"].detach().numpy(), atol=TOLERANCE)
+        try:
+            assert_allclose(sum_log_likelihood, data["sum_log_likelihood"].detach().numpy(), atol=TOLERANCE)
+        except Exception:
+            assert_allclose(sum_log_likelihood.detach().numpy(), data["sum_log_likelihood"].detach().numpy(), atol=TOLERANCE)
 
 
 class TestPerplexity(unittest.TestCase):

@@ -136,7 +136,7 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
                 top_log_probs, top_preds = torch.topk(log_probs,available_width)
                 for k in range(len(top_log_probs)):
                     curr_log_prob = prev_log_prob + top_log_probs[k].item()
-                    curr_pred_list = prev_predict + top_preds[k].item()
+                    curr_pred_list = prev_predict + [top_preds[k].item()]
                     candidate = (curr_pred_list, curr_log_prob, prev_hidden, prev_context)
                     candidate_pos = -1
                     for pos in range(len(candidate_beam_elems)):
@@ -165,7 +165,7 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
             max_prob = norm_prob
             best_elem = pos
 
-    return candidate_translations[best_elem][0]
+    return candidate_translations[best_elem][0], candidate_translations[best_elem][1]
 
 @torch.enable_grad()
 def train_epoch(sentences: List[Tuple[List[int], List[int]]], model: Seq2SeqAttentionModel,

@@ -100,10 +100,13 @@ def translate_greedy_search(source_sentence: List[int],
     translate_out = []
     attention_wt_list = []
     for i in range(max_length):
-        log_probs, prev_hidden, prev_context, attention_weights = decode(prev_hidden, encoder_hiddens, prev_context, decode_in, model)
+        probs, prev_hidden, prev_context, attention_weights = decode(prev_hidden, encoder_hiddens, prev_context, decode_in, model)
+        log_probs = torch.log(probs)
         decode_in = int(torch.argmax(log_probs).item())
         translate_out.append(decode_in)
         attention_wt_list.append(attention_weights)
+        if decode_in == EOS_token:
+            break
 
     return translate_out, torch.stack(attention_wt_list)
 
@@ -131,8 +134,9 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
             candidate_beam_elems = []
             for b in range(len(beam_elems)):
                 prev_predict, prev_log_prob, prev_hidden, prev_context = beam_elems[b]
-                log_probs, prev_hidden, prev_context, _ = decode(prev_hidden, encoder_hiddens, prev_context,
+                probs, prev_hidden, prev_context, _ = decode(prev_hidden, encoder_hiddens, prev_context,
                                                                                  prev_predict[-1], model)
+                log_probs = torch.log(probs)
                 top_log_probs, top_preds = torch.topk(log_probs,available_width)
                 for k in range(len(top_log_probs)):
                     curr_log_prob = prev_log_prob + top_log_probs[k].item()
@@ -164,6 +168,9 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
         if norm_prob > max_prob:
             max_prob = norm_prob
             best_elem = pos
+
+    # remove SOS token from the beginning
+    del candidate_translations[best_elem][0][0]
 
     return candidate_translations[best_elem][0], candidate_translations[best_elem][1]
 

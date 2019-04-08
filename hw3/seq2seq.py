@@ -23,7 +23,8 @@ def decode(prev_hidden: torch.tensor, input: int, model: Seq2SeqModel) -> (torch
     :return: (1) a tensor `probs` of shape [target_vocab_size], denoted p(y_t | x_1 ... x_S, y_1 .. y_{t-1})
              (2) a tensor `hidden` of shape [L, hidden_dim], denoted H^{dec}_t in the assignment
     """
-    hidden_out = model.decoder_gru.forward(input, prev_hidden)
+    decode_in = model.target_embedding_matrix[input]
+    hidden_out = model.decoder_gru.forward(decode_in, prev_hidden)
     log_probs = model.output_layer.forward(hidden_out[-1])
     return log_probs, hidden_out
 
@@ -42,8 +43,8 @@ def log_likelihood(source_sentence: List[int], target_sentence: List[int], model
     prev_hidden = encoder_hiddens[-1]
     target_log_probs = []
 
-    for pos in range(target_embeddings.shape[0] - 1):
-        log_probs, prev_hidden = decode(prev_hidden, target_embeddings[pos], model)
+    for pos in range(len(target_sentence) - 1):
+        log_probs, prev_hidden = decode(prev_hidden, target_sentence[pos], model)
         target_log_probs.append(torch.log(log_probs[target_sentence[pos+1]]))
 
     return torch.sum(torch.stack(target_log_probs))
@@ -58,14 +59,16 @@ def translate_greedy_search(source_sentence: List[int], model: Seq2SeqModel, max
     """
 
     encoder_hiddens = encode_all(source_sentence, model)
-    decode_in = model.target_embedding_matrix[SOS_token]
+    decode_in = SOS_token
     prev_hidden = encoder_hiddens[-1]
     translate_out = []
     for i in range(max_length):
         log_probs, prev_hidden = decode(prev_hidden, decode_in, model)
         tgt_out = int(torch.argmax(log_probs).item())
-        decode_in = model.target_embedding_matrix[tgt_out]
+        decode_in = tgt_out
         translate_out.append(tgt_out)
+        if tgt_out == EOS_token:
+            break
 
     return translate_out
 

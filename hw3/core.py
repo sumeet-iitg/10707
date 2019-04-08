@@ -91,7 +91,7 @@ class OutputLayer(object):
         :return: probs: a tensor of shape [target_vocab_size]
         """
         linear_transform = torch.mv(self.weight, input) + self.bias
-        return softmax(linear_transform)
+        return softmax(linear_transform, dim=0)
 
 
 class Attention(object):
@@ -111,7 +111,7 @@ class Attention(object):
 
         """
         attention_scores = torch.mv(source_top_hiddens,torch.mv(self.A, target_top_hidden))
-        return softmax(attention_scores)
+        return softmax(attention_scores,dim=0)
 
 
 class Seq2SeqModel(object):

@@ -148,6 +148,7 @@ if __name__ == "__main__":
     parser.add_argument("action", type=str,
                         choices=["train", "finetune", "train_perplexity", "test_perplexity",
                                  "print_train_translations", "print_test_translations"])
+    parser.add_argument('--epochs', type=int, help='Num Epochs', dest='epochs', default=1000)
     parser.add_argument("--load_model", type=str,
                         help="path to saved model on disk.  if this arg is unset, the weights are initialized randomly",
                         default="pretrained/seq2seq.pth")
@@ -166,9 +167,9 @@ if __name__ == "__main__":
     model = build_seq2seq_model(model_params)  # type: Seq2SeqModel
 
     if args.action == 'train':
-        for epoch in range(10):
+        for epoch in range(args.epochs):
             train_epoch(train_sentences, model, epoch)
-            torch.save(model_params, '{}_{}.pth'.format(args.save_model_prefix, epoch))
+            torch.save(model_params, '{}.pth'.format(args.save_model_prefix))
     elif args.action == 'finetune':
         train_epoch(train_sentences[:1000], model, 0, learning_rate=1e-5)
         torch.save(model_params, "{}.pth".format(args.save_model_prefix))

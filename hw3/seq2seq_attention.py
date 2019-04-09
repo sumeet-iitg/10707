@@ -233,12 +233,13 @@ if __name__ == "__main__":
     parser.add_argument("action", type=str,
                         choices=["train", "finetune", "train_perplexity", "test_perplexity",
                                  "print_train_translations", "print_test_translations", "visualize_attention"])
+    parser.add_argument('--epochs', type=int, help='Num Epochs', dest='epochs', default=1000)
     parser.add_argument("--beam_width", type=int, default=-1,
                         help="number of translation candidates to keep at each time step. "
                              "this option is used for beam search translation (greedy search decoding is used by default).")
     parser.add_argument("--load_model", type=str,
                         help="path to saved model on disk.  if this arg is unset, the weights are initialized randomly")
-    parser.add_argument("--save_model_prefix", type=str, help="prefix to save model with, if you're training")
+    parser.add_argument("--save_model_prefix", type=str, help="prefix to save model with, if you're training", default="trained/seq2seq_attention")
     args = parser.parse_args()
 
     # load train/test data, and source/target vocabularies
@@ -252,9 +253,9 @@ if __name__ == "__main__":
     model = build_seq2seq_attention_model(model_params)  # type: Seq2SeqAttentionModel
 
     if args.action == 'train':
-        for epoch in range(10):
+        for epoch in range(args.epochs):
             train_epoch(train_sentences, model, epoch)
-            torch.save(model_params, '{}_{}.pth'.format(args.save_model_prefix, epoch))
+            torch.save(model_params, '{}.pth'.format(args.save_model_prefix))
     elif args.action == 'finetune':
         train_epoch(train_sentences[:1000], model, 0, learning_rate=1e-5)
         torch.save(model_params, "{}.pth".format(args.save_model_prefix))

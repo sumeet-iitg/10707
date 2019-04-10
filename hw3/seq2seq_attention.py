@@ -129,6 +129,7 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
     beam_elems= [([SOS_token], float(0), prev_hidden, prev_context)]
     candidate_translations = []
     available_width = beam_width
+
     for i in range(max_length):
         if available_width >0:
             candidate_beam_elems = []
@@ -155,7 +156,7 @@ def translate_beam_search(source_sentence: List[int], model: Seq2SeqAttentionMod
 
             beam_elems = []
             for candidate in candidate_beam_elems:
-                if candidate[0][-1] == EOS_token:
+                if candidate[0][-1] == EOS_token or i==(max_length-1):
                     candidate_translations.append(candidate)
                     available_width -= 1
                 else:

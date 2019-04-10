@@ -217,9 +217,11 @@ def print_translations(sentences: List[Tuple[List[int], List[int]]], model: Seq2
     :param source_vocab: the mapping from word index to word string, in the source language
     :param target_vocab: the mapping from word index to word string, in the target language
     """
+    total_log_lhood = 0
     for (source_sentence, target_sentence) in sentences:
         if beam_width > 0:
-            translation, _ = translate_beam_search(source_sentence, model, beam_width)
+            translation, log_lhood = translate_beam_search(source_sentence, model, beam_width)
+            total_log_lhood += log_lhood
         else:
             translation, _ = translate_greedy_search(source_sentence, model)
 
@@ -227,6 +229,7 @@ def print_translations(sentences: List[Tuple[List[int], List[int]]], model: Seq2
         print("target sentence:" + " ".join([target_vocab[word] for word in target_sentence]))
         print("translation:\t" + " ".join([target_vocab[word] for word in translation]))
         print("")
+    print("Avg log Likelihood = ", total_log_lhood/len(sentences))
 
 
 if __name__ == "__main__":
@@ -235,6 +238,7 @@ if __name__ == "__main__":
                         choices=["train", "finetune", "train_perplexity", "test_perplexity",
                                  "print_train_translations", "print_test_translations", "visualize_attention"])
     parser.add_argument('--epochs', type=int, help='Num Epochs', dest='epochs', default=1000)
+    parser.add_argument('--num_test', type=int, help='Num Tests', dest='num_test', default=1000)
     parser.add_argument("--beam_width", type=int, default=-1,
                         help="number of translation candidates to keep at each time step. "
                              "this option is used for beam search translation (greedy search decoding is used by default).")
@@ -263,7 +267,7 @@ if __name__ == "__main__":
     elif args.action == "print_train_translations":
         print_translations(train_sentences, model, source_vocab, target_vocab, args.beam_width)
     elif args.action == "print_test_translations":
-        print_translations(test_sentences, model, source_vocab, target_vocab, args.beam_width)
+        print_translations(test_sentences[:args.num_test], model, source_vocab, target_vocab, args.beam_width)
     elif args.action == "train_perplexity":
         print("perplexity: {}".format(perplexity(train_sentences[:1000], model)))
     elif args.action == "test_perplexity":

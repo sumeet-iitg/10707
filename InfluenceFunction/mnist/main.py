@@ -97,21 +97,12 @@ class Net(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-model = Net().to(device)
 
-# Load checkpoint
-if args.ckpf != '':
-    if use_cuda:
-        model.load_state_dict(torch.load(args.ckpf))
-    else:
-        # Load GPU model on CPU
-        model.load_state_dict(torch.load(args.ckpf, map_location=lambda storage, loc: storage))
-
-optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
     """Training"""
+    print("Begin Training!")
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -184,16 +175,29 @@ def test_image():
             label = output.argmax(dim=1, keepdim=True).item()
             print ("Images: " + next(names) + ", Classified as: " + str(label))
 
-# Train?
-if args.train:
-    # Train + Test per epoch
-    for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(args, model, device, test_loader, epoch)
 
-    # Do checkpointing - Is saved in outf
-    torch.save(model.state_dict(), '%s/mnist_convnet_model_epoch_%d.pth' % (args.outf, args.epochs))
+if __name__=="__main__":
+    model = Net().to(device)
+    # Load checkpoint
+    if args.ckpf != '':
+        if use_cuda:
+            model.load_state_dict(torch.load(args.ckpf))
+        else:
+            # Load GPU model on CPU
+            model.load_state_dict(torch.load(args.ckpf, map_location=lambda storage, loc: storage))
 
-# Evaluate?
-if args.evaluate:
-    test_image()
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+
+    # Train?
+    if args.train:
+        # Train + Test per epoch
+        for epoch in range(1, args.epochs + 1):
+            train(args, model, device, train_loader, optimizer, epoch)
+            test(args, model, device, test_loader, epoch)
+
+        # Do checkpointing - Is saved in outf
+        torch.save(model.state_dict(), '%s/mnist_convnet_model_epoch_%d.pth' % (args.outf, args.epochs))
+
+    # Evaluate?
+    if args.evaluate:
+        test_image()

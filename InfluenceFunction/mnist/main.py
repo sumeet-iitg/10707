@@ -11,6 +11,7 @@ from PIL import Image
 import numpy as np
 from torchvision import datasets, transforms
 from torch.autograd import Variable
+from hessians import get_second_order_grad
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -39,6 +40,8 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
 parser.add_argument('--train', action='store_true',
                     help='training a ConvNet model on MNIST dataset')
 parser.add_argument('--evaluate', action='store_true',
+                    help='evaluate a [pre]trained model')
+parser.add_argument('--influence', action='store_true',
                     help='evaluate a [pre]trained model')
 
 
@@ -96,10 +99,6 @@ class Net(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
-
-
-
-
 def train(args, model, device, train_loader, optimizer, epoch):
     """Training"""
     print("Begin Training!")
@@ -109,14 +108,8 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        loss.backward()
-        optimizer.step()
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
-            print('{{"metric": "Train - NLL Loss", "value": {}}}'.format(
-        loss.item()))
+        grads2 = get_second_order_grad(loss,data)
+        print(grads2)
 
 
 def test(args, model, device, test_loader, epoch):
@@ -175,6 +168,18 @@ def test_image():
             label = output.argmax(dim=1, keepdim=True).item()
             print ("Images: " + next(names) + ", Classified as: " + str(label))
 
+def get_hvp():
+    # datainput/model/optimizer setup is ommited here
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data[0].to(device), target[0].to(device)
+        optimizer.zero_grad()
+        output = model(data)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        optimizer.step()
+
+        loss.item()))
+
 
 if __name__=="__main__":
     model = Net().to(device)
@@ -201,3 +206,6 @@ if __name__=="__main__":
     # Evaluate?
     if args.evaluate:
         test_image()
+
+    if args.influence:
+        get_hvp()

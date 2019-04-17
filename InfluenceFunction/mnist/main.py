@@ -108,8 +108,14 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        grads2 = get_second_order_grad(loss,data)
-        print(grads2)
+        loss.backward()
+        optimizer.step()
+        if batch_idx % args.log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loader.dataset),
+                100. * batch_idx / len(train_loader), loss.item()))
+            print('{{"metric": "Train - NLL Loss", "value": {}}}'.format(
+        loss.item()))
 
 
 def test(args, model, device, test_loader, epoch):
@@ -175,10 +181,9 @@ def get_hvp():
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        loss.backward()
-        optimizer.step()
+        grads2 = get_second_order_grad(loss,data)
+        break
 
-        loss.item()))
 
 
 if __name__=="__main__":

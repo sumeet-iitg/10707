@@ -184,8 +184,12 @@ def get_hvp(model):
         loss = F.nll_loss(output, target)
 
         grads = torch.autograd.grad(loss, params, create_graph=True)[0]
-        grads2 = get_second_order_grad(grads, params)
-        print(grads2)
+        print(grads.shape)
+        
+        #grads2 = torch.autograd.grad(grads, params, torch.ones(grads.shape).to(device))[0]
+        grads2 = get_second_order_grad(grads, params,device)
+        for g2 in grads2:
+            print(g2.shape)
         break
 
 

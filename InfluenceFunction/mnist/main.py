@@ -194,7 +194,7 @@ def get_hvp(model):
             print("grad.shape:{} w.r.to param.shape:{}".format(grad1.shape,param.shape))
         
         #grads2 = torch.autograd.grad(grads, params, torch.ones(grads.shape).to(device))[0]
-        grads2 = None
+        grads2 = get_second_order_grad(grads,params,device)
         hvp = []
         for g1,g2 in zip(grads,grads2):
             hvp.append(torch.norm(torch.mul(g1,g2),p=2).unsqueeze(0))
@@ -204,7 +204,6 @@ def get_hvp(model):
         print("BatchId:{}  Norm:{}".format(batch_idx, hvp_norm))
         print('Time used is ', time.time() - start)
         batch_hvp_norm.append(hvp_norm)
-        break
 
 
 if __name__=="__main__":

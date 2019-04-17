@@ -6,15 +6,16 @@ import time
 
 
 def get_second_order_grad(grads, xs,device):
-    start = time.time()
+    # start = time.time()
     grads2 = []
     for j, (grad, x) in enumerate(zip(grads, xs)):
         print('2nd order on layer ', j)
-        print(x.size())
+        # print(x.size())
         grad = torch.reshape(grad, [-1])
         grads2_tmp = []
         grad_wts = torch.ones(grad.shape).to(device)
         g2 = torch.autograd.grad(grad,x, grad_wts, retain_graph=True)[0]
+        print("grad.shape:{} w.r.to param.shape:{}".format(g2.shape,x.shape))
         grads2.append(g2)
         # for count, g in enumerate(grad):
             # g2 = torch.autograd.grad(g, x, retain_graph=True)[0]
@@ -28,7 +29,7 @@ def get_second_order_grad(grads, xs,device):
     #     # mask = grad_mask[i,:]
     #     sec_order.append(torch.autograd.grad([grads[i]], xs, grad_mask, retain_graph=True)[0])
 
-    print('Time used is ', time.time() - start)
+    # print('Time used is ', time.time() - start)
     # print(torch.stack(sec_order))
     # for grad in grads2:  # check size
     #     print(grad.size())

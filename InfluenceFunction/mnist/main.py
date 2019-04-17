@@ -12,6 +12,7 @@ import numpy as np
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 from hessians import get_second_order_grad
+import time
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -178,25 +179,32 @@ def get_hvp(model):
     # datainput/model/optimizer setup is ommited here
     params = optimizer.param_groups[0]['params']
     batch_hvp_norm = []
+    
     for batch_idx, (data, target) in enumerate(train_loader):
+        start = time.time()
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
 
-        grads = torch.autograd.grad(loss, params, create_graph=True)[0]
-        print(grads.shape)
+        grads = []
+        for param in params:
+            grad1 = torch.autograd.grad(loss, param, create_graph=True)[0]
+            grads.append(grad1)
+            print("grad.shape:{} w.r.to param.shape:{}".format(grad1.shape,param.shape))
         
         #grads2 = torch.autograd.grad(grads, params, torch.ones(grads.shape).to(device))[0]
-        grads2 = get_second_order_grad(grads, params,device)
+        grads2 = None
         hvp = []
         for g1,g2 in zip(grads,grads2):
-            hvp.append(torch.mul(g1,g2))
-        full_hvp = torch.cat(hvp)
-        hvp_norm = torch.norm(full_hvp,p=2)
-        print("Norm:",hvp_norm)
+            hvp.append(torch.norm(torch.mul(g1,g2),p=2).unsqueeze(0))
+        hvp_chunks = torch.cat(hvp)
+        print("Hvp Chunks:{}".format(hvp_chunks))
+        hvp_norm = torch.norm(hvp_chunks,p=2)
+        print("BatchId:{}  Norm:{}".format(batch_idx, hvp_norm))
+        print('Time used is ', time.time() - start)
         batch_hvp_norm.append(hvp_norm)
-
+        break
 
 
 if __name__=="__main__":

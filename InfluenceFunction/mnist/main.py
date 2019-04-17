@@ -64,7 +64,7 @@ if use_cuda:
 kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
 # Load MNIST only if training
-if args.train:
+if args.train or args.influence:
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST(root=args.dataroot, train=True, download=True,
                        transform=transforms.Compose([
@@ -174,16 +174,16 @@ def test_image():
             label = output.argmax(dim=1, keepdim=True).item()
             print ("Images: " + next(names) + ", Classified as: " + str(label))
 
-def get_hvp():
+def get_hvp(model):
     # datainput/model/optimizer setup is ommited here
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data[0].to(device), target[0].to(device)
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        grads2 = get_second_order_grad(loss,data)
+        grads2 = get_second_order_grad(loss,model.parameters())
+        print(grads2)
         break
-
 
 
 if __name__=="__main__":
@@ -213,4 +213,4 @@ if __name__=="__main__":
         test_image()
 
     if args.influence:
-        get_hvp()
+        get_hvp(model)

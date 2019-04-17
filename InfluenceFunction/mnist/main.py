@@ -177,6 +177,7 @@ def test_image():
 def get_hvp(model):
     # datainput/model/optimizer setup is ommited here
     params = optimizer.param_groups[0]['params']
+    batch_hvp_norm = []
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
@@ -188,9 +189,14 @@ def get_hvp(model):
         
         #grads2 = torch.autograd.grad(grads, params, torch.ones(grads.shape).to(device))[0]
         grads2 = get_second_order_grad(grads, params,device)
-        for g2 in grads2:
-            print(g2.shape)
-        break
+        hvp = []
+        for g1,g2 in zip(grads,grads2):
+            hvp.append(torch.mul(g1,g2))
+        full_hvp = torch.cat(hvp)
+        hvp_norm = torch.norm(full_hvp,p=2)
+        print("Norm:",hvp_norm)
+        batch_hvp_norm.append(hvp_norm)
+
 
 
 if __name__=="__main__":

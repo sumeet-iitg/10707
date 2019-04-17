@@ -176,12 +176,15 @@ def test_image():
 
 def get_hvp(model):
     # datainput/model/optimizer setup is ommited here
+    params = optimizer.param_groups[0]['params']
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
-        grads2 = get_second_order_grad(loss,model.parameters())
+
+        grads = torch.autograd.grad(loss, params, create_graph=True)[0]
+        grads2 = get_second_order_grad(grads, params)
         print(grads2)
         break
 

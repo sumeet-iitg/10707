@@ -5,29 +5,26 @@ import torch
 import time
 
 
-def get_second_order_grad(loss, xs):
+def get_second_order_grad(grads, xs):
     start = time.time()
     grads2 = []
-    # for j, (grad, x) in enumerate(zip(grads, xs)):
-    #     print('2nd order on ', j, 'th layer')
-    #     print(x.size())
-    #     grad = torch.reshape(grad, [-1])
-    #     grads2_tmp = []
-    #     for count, g in enumerate(grad):
-    #         g2 = torch.autograd.grad(g, x, retain_graph=True)[0]
-    #         g2 = torch.reshape(g2, [-1])
-    #         grads2_tmp.append(g2[count].data.cpu().numpy())
-    #     # grads2.append(torch.from_numpy(np.reshape(grads2_tmp, x.size())).to(DEVICE_IDS[0]))
-    #     grads2.append(grads2_tmp)
+    for j, (grad, x) in enumerate(zip(grads, xs)):
+        print('2nd order on ', j, 'th layer')
+        print(x.size())
+        grad = torch.reshape(grad, [-1])
+        grads2_tmp = []
+        for count, g in enumerate(grad):
+            g2 = torch.autograd.grad(g, x, retain_graph=True)[0]
+            g2 = torch.reshape(g2, [-1])
+            grads2_tmp.append(g2[count].data.cpu().numpy())
+        # grads2.append(torch.from_numpy(np.reshape(grads2_tmp, x.size())).to(DEVICE_IDS[0]))
+        grads2.append(grads2_tmp)
     # grad_mask = torch.eye(len(xs))
     # sec_order = []
     # for i in range(grad_mask.shape[0]):
     #     # mask = grad_mask[i,:]
     #     sec_order.append(torch.autograd.grad([grads[i]], xs, grad_mask, retain_graph=True)[0])
-    grad_mask = torch.ones(loss.shape)
-    grads = torch.autograd.grad(loss, xs, grad_mask, create_graph=True)[0]
-    grad_mask = torch.ones(len(grads))
-    grads2 = torch.autograd.grad(grads,xs,grad_mask)
+
     print('Time used is ', time.time() - start)
     # print(torch.stack(sec_order))
     # for grad in grads2:  # check size
